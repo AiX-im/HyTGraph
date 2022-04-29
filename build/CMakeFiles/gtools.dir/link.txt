@@ -1,0 +1,1 @@
+/usr/bin/c++  -std=c++11 -DNDEBUG -rdynamic CMakeFiles/gtools.dir/src/utils/parser.cpp.o CMakeFiles/gtools.dir/src/utils/utils.cpp.o CMakeFiles/gtools.dir/samples/tools/gtools.cpp.o -o gtools   -L/home/zyj/sep-graph-pip-1.0/build/deps/gflags/lib  -Wl,-rpath,/home/zyj/sep-graph-pip-1.0/build/deps/gflags/lib deps/gflags/libgflags_nothreads.a 
