@@ -98,6 +98,31 @@ namespace sepgraph
             stream.Sync();
         }
         
+                template<typename TAppInst, typename TGraphDatum>
+        void RebuildArrayWorklist_zero(TAppInst &app_inst,
+                                  TGraphDatum &graph_datum,
+                                  const groute::Stream &stream,
+                  index_t seg_snode,
+                  index_t seg_nnodes,
+                  index_t seg_idx)
+        {
+            dim3 grid_dims, block_dims;
+
+            //graph_datum.m_wl_array_in_seg[seg_idx].ResetAsync(stream.cuda_stream);
+
+            KernelSizing(grid_dims, block_dims, seg_nnodes);
+
+            kernel::RebuildWorklist
+                    << < grid_dims, block_dims, 0, stream.cuda_stream >> > (app_inst,
+                    graph_datum.GetWorkSourceRangeDeviceObject(seg_snode,seg_nnodes),
+                    graph_datum.m_wl_array_in_seg[seg_idx].DeviceObject(),
+                    graph_datum.GetBufferDeviceObject(),
+                    graph_datum.GetValueDeviceObject()
+            );
+
+            stream.Sync();
+        }
+
         template<typename TAppInst, typename TGraphDatum>
         void RebuildBitmapWorklist(TAppInst &app_inst,
                                    TGraphDatum &graph_datum,
