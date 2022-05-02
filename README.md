@@ -6,9 +6,9 @@ This repo contains all the source code to build SEP-Graph++.
 ## 2. Installation ##
 
 #### 2.1 Software Requirements ####
-* CUDA == 9.x
+* CUDA == 10.x
 * GCC == 5.x.0
-* CMake >= 2.8
+* CMake >= 3.14
 * Linux/Unix
 
 #### 2.2 Hardware Requirements ####
@@ -25,7 +25,7 @@ This repo contains all the source code to build SEP-Graph++.
     
 2. Build
 
-  - cd sep-graph
+  - cd SEP-GraphPP
   - mkdir build && cd build
   - cmake .. -DCUDA_TOOLKIT_ROOT_DIR=**CUDA_ROOT** -DCMAKE_C_COMPILER=**GCC_PATH** -DCMAKE_CXX_COMPILER=**G++_PATH**
   - make -j 8
