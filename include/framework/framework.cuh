@@ -10,6 +10,9 @@
 #include <functional>
 #include <map>
 #include <thrust/device_ptr.h>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <thread>
 #include <thrust/sort.h>
 #include <cub/cub.cuh>
 #include <framework/common.h>
@@ -363,20 +366,17 @@ namespace sepgraph {
 
             void Start(index_t priority_detal = 0) {
                 
-              GraphDatum &graph_datum = *m_graph_datum;
-              graph_datum.priority_detal = priority_detal;
+                GraphDatum &graph_datum = *m_graph_datum;
+                graph_datum.priority_detal = priority_detal;
 
-              AlgoVariant next_policy[FLAGS_SEGMENT];
-              for(index_t i = 0; i < FLAGS_SEGMENT; i++){
-                  next_policy[i] = m_policy_decision_maker.GetInitPolicy();
-              }
-                //AlgoVariant next_policy = m_policy_decision_maker.GetInitPolicy();
+                AlgoVariant next_policy[FLAGS_SEGMENT];
+                for(index_t i = 0; i < FLAGS_SEGMENT; i++){
+                    next_policy[i] = m_policy_decision_maker.GetInitPolicy();
+                }
                 bool convergence = false;
-                std::vector<std::string> round_info;
-
-                uint64_t edge_total = 0; 
                 Stopwatch sw_total(true);
                 LoadOptions();
+
                 while (!convergence) {
                   PreComputationBW();	    
                   CombineTask(next_policy);
@@ -385,19 +385,19 @@ namespace sepgraph {
                     next_policy[i] = m_policy_decision_maker.GetNextPolicy(i);
                   }
 
-                    int convergence_check = 0;
-                    for(index_t seg_id = 0; seg_id < FLAGS_SEGMENT; seg_id++){
+                  int convergence_check = 0;
+                  for(index_t seg_id = 0; seg_id < FLAGS_SEGMENT; seg_id++){
                        if(m_running_info.input_active_count_seg[seg_id] == 0){
                            convergence_check++;
                        }
                    }
-                   if(convergence_check == FLAGS_SEGMENT){
-                    convergence = true;
-                }
-                    if (m_running_info.current_round == 1000 ) {//FLAGS_max_iteration
+                  if(convergence_check == FLAGS_SEGMENT){
+                        convergence = true;
+                  }
+                  if (m_running_info.current_round == 1000 ) {//FLAGS_max_iteration
                         convergence = true;
                         LOG("Max iterations reached\n");
-                    }
+                  }
                     
                 }
 
@@ -405,10 +405,6 @@ namespace sepgraph {
 
                 m_running_info.time_total = sw_total.ms();
 
-                if (FLAGS_trace) {
-                    JsonWriter::getInst().write("round", round_info);
-                }
-                SaveToJson();
             }
 
             const groute::graphs::host::CSRGraph &CSRGraph() const {
@@ -523,7 +519,6 @@ namespace sepgraph {
                 }
 
                 index_t priority_seg = m_groute_context->segment_ct;
-                //printf("segnum:%d\n",priority_seg);
                 index_t seg_idx_new;
                 index_t seg_exc = 0;
                 for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
@@ -541,20 +536,18 @@ namespace sepgraph {
 		            else{
                         seg_idx_new = seg_idx;
                     }
-			/*if(m_running_info.input_active_count_seg[seg_idx_new] == 0)
-				continue;*/
 		        seg_snode = m_groute_context->seg_snode_ct[seg_idx_new];                                    // start node
 		        seg_enode = m_groute_context->seg_enode_ct[seg_idx_new];                                    // end node
 
 		        seg_sedge_csr = m_groute_context->seg_sedge_csr_ct[seg_idx_new];                            // start edge
 		        seg_nedges_csr = m_groute_context->seg_nedge_csr_ct[seg_idx_new]; 
 		        
-                printf("seg_idx_new:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx_new,seg_snode,seg_enode,seg_sedge_csr,seg_nedges_csr);
+                //printf("seg_idx_new:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx_new,seg_snode,seg_enode,seg_sedge_csr,seg_nedges_csr);
 		        stream_id = seg_idx_new % FLAGS_n_stream;
                 
 
-                if(algo_variant[seg_idx_new] == AlgoVariant::SYNC_PUSH_TD){
-                    printf("exp\n");
+                if(algo_variant[seg_idx_new] == AlgoVariant::Exp_Filter){
+                    //printf("exp\n");
                     m_running_info.explicit_num++;
                     seg_exc++;
                     m_graph_datum->seg_exc_list[stream_id] = seg_idx_new; 
@@ -567,7 +560,7 @@ namespace sepgraph {
                     zcflag = false;
                 }
                 else{
-                    printf("zero\n");
+                    //printf("zero\n");
                     m_running_info.zerocopy_num++;
                     m_csr_dev_graph_allocator->SwitchZC();
                     m_graph_datum->m_csr_edge_weight_datum.SwitchZC();
@@ -585,8 +578,7 @@ namespace sepgraph {
        for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
              stream[stream_idx].Sync();
        }
-        sw_round.stop();
-        printf("seg_exc:%d\n",seg_exc);
+       sw_round.stop();
        if(seg_exc >= FLAGS_n_stream && FLAGS_residence == 1){
         
        for(index_t seg_idx = 0; seg_idx < FLAGS_n_stream; seg_idx++){
@@ -627,17 +619,17 @@ namespace sepgraph {
             zcflag = false;
             auto csr_graph = m_csr_dev_graph_allocator->DeviceObject();
 
-        //LOG("PUSHDD RUN in round(%d)\t|batch(%d)\t|engine(%s)\t|range(%d,%d)\n",m_running_info.current_round,seg_idx_new,zcflag?"ZC":"Exp",seg_snode,seg_enode);
-        RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
-           csr_graph,
-           graph_datum,
-           m_engine_options,
-           stream[stream_id]); 
+            //LOG("PUSHDD RUN in round(%d)\t|batch(%d)\t|engine(%s)\t|range(%d,%d)\n",m_running_info.current_round,seg_idx_new,zcflag?"ZC":"Exp",seg_snode,seg_enode);
+            RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
+               csr_graph,
+               graph_datum,
+               m_engine_options,
+               stream[stream_id]); 
+            }
+            else{
+                continue;
+            }            
         }
-        else{
-            continue;
-        }            
-    }
         for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
             stream[stream_idx].Sync();
             m_graph_datum->seg_exc_list[stream_idx] = -1;
@@ -756,16 +748,16 @@ namespace sepgraph {
                     seg_snode = m_groute_context->seg_snode[seg_idx];
                     m_groute_context->seg_snode_ct[seg_idx_ct] = seg_snode;
 
-                    if(algo_variant[seg_idx] == AlgoVariant::SYNC_PUSH_DD){
+                    if(algo_variant[seg_idx] == AlgoVariant::Zero_Copy){
                         task = true;
-                        while(algo_variant[seg_idx + 1] == AlgoVariant::SYNC_PUSH_DD && seg_idx < FLAGS_SEGMENT - 1){
+                        while(algo_variant[seg_idx + 1] == AlgoVariant::Zero_Copy && seg_idx < FLAGS_SEGMENT - 1){
                             seg_idx++;
                             m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
                         }
                     }
                     seg_enode = m_groute_context->seg_enode[seg_idx];
                     m_groute_context->seg_enode_ct[seg_idx_ct] = seg_enode; 
-                    printf("seg_idx:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx,seg_snode,seg_enode,m_groute_context->seg_sedge_csr_ct[seg_idx_ct],m_groute_context->seg_nedge_csr_ct[seg_idx_ct]); 
+                    //printf("seg_idx:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx,seg_snode,seg_enode,m_groute_context->seg_sedge_csr_ct[seg_idx_ct],m_groute_context->seg_nedge_csr_ct[seg_idx_ct]); 
                     if(task){
                         task = false;
                         RebuildArrayWorklist_zero(app_inst,
@@ -773,16 +765,15 @@ namespace sepgraph {
                             stream[stream_id],seg_snode,seg_enode - seg_snode,FLAGS_SEGMENT - 1);
                     }
                     else{
-                        algo_variant[seg_idx_ct] = AlgoVariant::SYNC_PUSH_TD;
+                        algo_variant[seg_idx_ct] = AlgoVariant::Exp_Filter;
                         RebuildArrayWorklist(app_inst,
                             graph_datum,
                             stream[stream_id],seg_snode,seg_enode - seg_snode,seg_idx_ct++);
 
                     }
                 }
-                printf("seg_idx_ct:%d\n",seg_idx_ct);
                 if(seg_idx_ct < FLAGS_SEGMENT)
-                    algo_variant[seg_idx_ct++] = AlgoVariant::SYNC_PUSH_DD;
+                    algo_variant[seg_idx_ct++] = AlgoVariant::Zero_Copy;
 
                 for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
                     stream[stream_idx].Sync();
@@ -790,18 +781,15 @@ namespace sepgraph {
                 m_groute_context->segment_ct = seg_idx_ct;
                 sw_rebuild.stop();
                 m_running_info.time_overhead_rebuild_worklist += sw_rebuild.ms();
-printf("seg_idx_ct:%d\n",seg_idx_ct);
                 for(index_t seg_idx = 0; seg_idx < seg_idx_ct ; seg_idx++){
-                    stream_id = seg_idx % FLAGS_n_stream;    
-                    printf("test1\n");         
-                    index_t active_count = graph_datum.m_wl_array_in_seg[seg_idx].GetCount(stream[stream_id]); 
-                    printf("active_count:%d \n",active_count);     
+                    stream_id = seg_idx % FLAGS_n_stream;            
+                    index_t active_count = graph_datum.m_wl_array_in_seg[seg_idx].GetCount(stream[stream_id]);  
                     uint32_t work_size = active_count;
                     dim3 grid_dims, block_dims;
 
                     if(FLAGS_priority_a == 1){
                             Stopwatch sw_priority(true);
-                            if(algo_variant[seg_idx] == AlgoVariant::SYNC_PUSH_DD){
+                            if(algo_variant[seg_idx] == AlgoVariant::Zero_Copy){
                                 graph_datum.seg_res_num[seg_idx] = 0;
                                 continue;
                             }

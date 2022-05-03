@@ -63,6 +63,11 @@ namespace sepgraph
 
             static const AlgoVariant SYNC_PULL_DD;
 
+            static const AlgoVariant Exp_Filter;
+
+            static const AlgoVariant Exp_Compaction;
+            
+            static const AlgoVariant Zero_Copy;
 
             AlgoVariant()
             {
@@ -174,6 +179,21 @@ namespace sepgraph
         const AlgoVariant AlgoVariant::SYNC_PULL_DD(
                 Model::SYNC,
                 MsgPassing::PULL,
+                Scheduling::DATA_DRIVEN);
+
+        const AlgoVariant AlgoVariant::Exp_Filter(
+                Model::SYNC,
+                MsgPassing::PUSH,
+                Scheduling::TOPOLOGY_DRIVEN);
+
+        const AlgoVariant AlgoVariant::Exp_Compaction(
+                Model::SYNC,
+                MsgPassing::PUSH,
+                Scheduling::DATA_DRIVEN);        
+
+        const AlgoVariant AlgoVariant::Zero_Copy(
+                Model::ASYNC,
+                MsgPassing::PUSH,
                 Scheduling::DATA_DRIVEN);
 
         std::string LBToString(LoadBalancing lb)

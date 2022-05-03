@@ -4,7 +4,7 @@ project(SEP-Graph)
 find_package(CUDA 9 REQUIRED)
 
 message("-- CUDA Version: ${CUDA_VERSION_STRING}")
-
+add_definitions(-w)
 # GFlags
 add_subdirectory(deps/gflags)
 include_directories(${PROJECT_BINARY_DIR}/deps/gflags/include)

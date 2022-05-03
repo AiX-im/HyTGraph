@@ -228,10 +228,10 @@ namespace sepgraph
                 AlgoVariant init_policy;
                 const AlgoType &algo_type = m_running_info.m_algo_type;
                 if (algo_type == AlgoType::ITERATIVE_SCHEME && FLAGS_hybrid != 0){
-                    init_policy =  AlgoVariant::SYNC_PUSH_TD;
+                    init_policy =  AlgoVariant::Exp_Filter;
                 }
                 else{
-                    init_policy = AlgoVariant::SYNC_PUSH_DD;
+                    init_policy = AlgoVariant::Zero_Copy;
                 }
                 return init_policy;
             }
@@ -242,24 +242,24 @@ namespace sepgraph
 		        
                 if(FLAGS_hybrid == 2){
 		            if (m_running_info.input_active_count_seg[seg_id] > m_running_info.nnodes_seg[seg_id] * FLAGS_alpha){
-		                  next_policy = AlgoVariant::SYNC_PUSH_TD;//equal explicit
+		                  next_policy = AlgoVariant::Exp_Filter;//equal explicit
 		            }
 		            else{
-		                  next_policy = AlgoVariant::SYNC_PUSH_DD;//equal zero
+		                  next_policy = AlgoVariant::Zero_Copy;//equal zero
 		            }
 
                     if (m_running_info.input_workload_seg[seg_id] > m_running_info.total_workload_seg[seg_id] * FLAGS_alpha){
-		                  next_policy = AlgoVariant::SYNC_PUSH_TD;
+		                  next_policy = AlgoVariant::Exp_Filter;
                     }
                     else{
-		                  next_policy = AlgoVariant::SYNC_PUSH_DD;
+		                  next_policy = AlgoVariant::Zero_Copy;
                     }
 		        }
                 else if(FLAGS_hybrid == 1){
-                    next_policy = AlgoVariant::SYNC_PUSH_TD;
+                    next_policy = AlgoVariant::Exp_Filter;
                 }
                 else{
-                    next_policy = AlgoVariant::SYNC_PUSH_DD;
+                    next_policy = AlgoVariant::Zero_Copy;
                 }
                 return next_policy;
             }
