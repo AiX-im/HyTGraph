@@ -239,6 +239,83 @@ namespace sepgraph
             }
         };
 
+        template <typename TAppInst,
+                  typename TCSRGraph,
+                  template <typename> class GraphDatum,
+                  typename TBuffer,
+                  typename TWeight>
+        struct PushFunctorDB_COM
+        {
+            typedef groute::dev::Queue<index_t> TWorkTarget;
+            TAppInst m_app_inst;
+            TWorkTarget m_work_target_low;
+            TWorkTarget m_work_target_high;
+            TCSRGraph m_csr_graph;
+            GraphDatum<TBuffer> m_buffer_array;
+            GraphDatum<TWeight> m_weight_array;
+            TBuffer m_current_priority;
+            bool m_data_driven;
+            bool m_priority;
+            bool m_weighted;
+            BitmapDeviceObject m_out_active_high;
+
+            __device__
+            PushFunctorDB_COM()
+            {
+            }
+            /**
+             * Async+Push+TD
+             * @param app_inst
+             * @param csr_graph
+             * @param buffer_array
+             * @param weight_array
+             */
+            __device__ __forceinline__
+            PushFunctorDB_COM(TAppInst app_inst,
+                          TCSRGraph csr_graph,
+                          GraphDatum<TBuffer> buffer_array,
+                          GraphDatum<TWeight> weight_array,
+                          BitmapDeviceObject out_active) : m_app_inst(app_inst),
+                                                           m_work_target_low(nullptr, nullptr, 0),
+                                                           m_work_target_high(nullptr, nullptr, 0),
+                                                           m_current_priority(0),
+                                                           m_csr_graph(csr_graph),
+                                                           m_buffer_array(buffer_array),
+                                                           m_weight_array(weight_array),
+                                                           m_data_driven(true),
+                                                           m_priority(false),
+                                                           m_out_active_high(out_active)
+            {
+                m_weighted = m_weight_array.size > 0;
+            }
+
+            __device__ __forceinline__ bool operator()(uint64_t edge, Payload<TBuffer> meta_data)
+            {
+                index_t dst = m_csr_graph.subgraph_edgedst[edge];
+                TBuffer buffer_to_push = meta_data.m_buffer_to_push;
+
+                if (m_weighted)
+                {
+                    m_app_inst.AccumulateBuffer(meta_data.m_src,
+                                                         dst,
+                                                         m_weight_array[edge],
+                                                         m_buffer_array.get_item_ptr(dst),
+                                                         buffer_to_push);
+                }
+                else
+                {
+            
+                   m_app_inst.AccumulateBuffer(meta_data.m_src,
+                                                         dst,
+                                                         m_buffer_array.get_item_ptr(dst),
+                                                         buffer_to_push);
+                }
+
+
+                return true;
+            }
+        };
+
     } // namespace kernel
 } // namespace sepgraph
 #endif //HYBRID_PUSH_FUNCTOR_H

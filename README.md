@@ -27,6 +27,9 @@ This repo contains all the source code to build SEP-Graph++.
 
   - cd SEP-GraphPP
   - mkdir build && cd build
-  - cmake .. -DCUDA_TOOLKIT_ROOT_DIR=**CUDA_ROOT** -DCMAKE_C_COMPILER=**GCC_PATH** -DCMAKE_CXX_COMPILER=**G++_PATH**
+  - cmake .. 
   - make -j 8
 
+  `
+  hello world!
+  `  

@@ -382,7 +382,7 @@ namespace sepgraph {
                   CombineTask(next_policy);
                   ExecutePolicyBW(next_policy); 	    
                   for(index_t i = 0; i < FLAGS_SEGMENT; i++){
-                    next_policy[i] = m_policy_decision_maker.GetNextPolicy(i);
+                    next_policy[i] = m_policy_decision_maker.GetNextPolicy(i,graph_datum.Compaction_num);
                   }
 
                   int convergence_check = 0;
@@ -529,118 +529,140 @@ namespace sepgraph {
 
                 index_t stream_id;
                 for(index_t seg_idx = 0; seg_idx < priority_seg ; seg_idx++){
-
                     if(FLAGS_priority_a == 1){
                         seg_idx_new = seg_res_rank[seg_idx].first;
                     }
 		            else{
                         seg_idx_new = seg_idx;
                     }
-		        seg_snode = m_groute_context->seg_snode_ct[seg_idx_new];                                    // start node
-		        seg_enode = m_groute_context->seg_enode_ct[seg_idx_new];                                    // end node
+    		        seg_snode = m_groute_context->seg_snode_ct[seg_idx_new];                                    // start node
+    		        seg_enode = m_groute_context->seg_enode_ct[seg_idx_new];                                    // end node
+    		        seg_sedge_csr = m_groute_context->seg_sedge_csr_ct[seg_idx_new];                            // start edge
+    		        seg_nedges_csr = m_groute_context->seg_nedge_csr_ct[seg_idx_new]; 
+    		        
+                    //printf("seg_idx_new:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx_new,seg_snode,seg_enode,seg_sedge_csr,seg_nedges_csr);
+    		        stream_id = seg_idx_new % FLAGS_n_stream;
+                    const auto &csr_graph = m_csr_dev_graph_allocator->DeviceObject();
+                    if(algo_variant[seg_idx_new] == AlgoVariant::Exp_Filter){
+                        printf("exp\n");
+                        m_running_info.explicit_num++;
+                        seg_exc++;
+                        m_graph_datum->seg_exc_list[stream_id] = seg_idx_new; 
+                        m_csr_dev_graph_allocator->AllocateDevMirror_Edge_Explicit_Step(seg_nedges_csr,seg_sedge_csr,stream[stream_id],stream_id);
+                        m_csr_dev_graph_allocator->SwitchExp(stream_id);
+                        if(m_graph_datum->m_weighted == true){
+                            m_graph_datum->m_csr_edge_weight_datum.AllocateDevMirror_edge_explicit_step(csr_graph_host,seg_nedges_csr,seg_sedge_csr,stream[stream_id],stream_id);   
+                            m_graph_datum->m_csr_edge_weight_datum.SwitchExp(stream_id);
+                        }
+                        zcflag = false;
+                        //printf("test1\n");
+                        RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
+                           csr_graph,
+                           graph_datum,
+                           m_engine_options,
+                           stream[stream_id]);  
+                    }
+                    else if(algo_variant[seg_idx_new] == AlgoVariant::Zero_Copy){
+                        //printf("zero\n");
+                        m_running_info.zerocopy_num++;
+                        m_csr_dev_graph_allocator->SwitchZC();
+                        m_graph_datum->m_csr_edge_weight_datum.SwitchZC();
+                        zcflag = true;
+                        seg_idx_new = FLAGS_SEGMENT - 1;
+                        RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
+                           csr_graph,
+                           graph_datum,
+                           m_engine_options,
+                           stream[stream_id]); 
+                    }
+                    else{
+                        //printf("Compaction\n");
+                        Compaction();
+                        m_csr_dev_graph_allocator->AllocateDevMirror_Edge_Compaction(graph_datum.subgraphedges,stream[stream_id]);
+                        m_csr_dev_graph_allocator->SwitchCom();
+                        if(m_graph_datum->m_weighted == true){
+                            m_graph_datum->m_csr_edge_weight_datum.AllocateDevMirror_edge_compaction(csr_graph_host,graph_datum.subgraphedges,stream[stream_id]);
+                            m_graph_datum->m_csr_edge_weight_datum.SwitchCom();
+                        }
+                        zcflag = false;
+                        seg_idx_new = FLAGS_SEGMENT;
+                        RunSyncPushDDB_COM(app_inst,
+                           graph_datum.subgraphnodes,
+                           seg_idx_new,
+                           csr_graph,
+                           graph_datum,
+                           m_engine_options,
+                           stream[stream_id]); 
+                    }
+		          //LOG("PUSHDD RUN in round(%d)\t|batch(%d)\t|engine(%s)\t|range(%d,%d)\n",m_running_info.current_round,seg_idx_new,zcflag?"ZC":"Exp",seg_snode,seg_enode);
+               }
 
-		        seg_sedge_csr = m_groute_context->seg_sedge_csr_ct[seg_idx_new];                            // start edge
-		        seg_nedges_csr = m_groute_context->seg_nedge_csr_ct[seg_idx_new]; 
-		        
-                //printf("seg_idx_new:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx_new,seg_snode,seg_enode,seg_sedge_csr,seg_nedges_csr);
-		        stream_id = seg_idx_new % FLAGS_n_stream;
+               for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
+                     stream[stream_idx].Sync();
+               }
+               sw_round.stop();
+               if(seg_exc >= FLAGS_n_stream && FLAGS_residence == 1){
                 
+               for(index_t seg_idx = 0; seg_idx < FLAGS_n_stream; seg_idx++){
+                    if(m_graph_datum->seg_exc_list[seg_idx] != -1){
+                            index_t seg_exc = m_graph_datum->seg_exc_list[seg_idx];
 
-                if(algo_variant[seg_idx_new] == AlgoVariant::Exp_Filter){
-                    //printf("exp\n");
-                    m_running_info.explicit_num++;
-                    seg_exc++;
-                    m_graph_datum->seg_exc_list[stream_id] = seg_idx_new; 
-                    m_csr_dev_graph_allocator->AllocateDevMirror_Edge_Explicit_Step(seg_nedges_csr,seg_sedge_csr,stream[stream_id],stream_id);
+                            stream_id = seg_exc % FLAGS_n_stream;
+                            seg_snode = m_groute_context->seg_snode_ct[seg_exc];                                    // start node
+                            seg_enode = m_groute_context->seg_enode_ct[seg_exc];  
+                            RebuildArrayWorklist(app_inst,
+                                graph_datum,
+                                stream[stream_id],seg_snode,seg_enode - seg_snode,seg_exc);
+
+                    }
+                    else{
+                        continue;
+                    }
+                }
+
+                for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
+                            stream[stream_idx].Sync();
+                }
+
+                for(index_t seg_idx = 0; seg_idx < FLAGS_n_stream ; seg_idx++){
+                    if(m_graph_datum->seg_exc_list[seg_idx] != -1){
+                    index_t seg_exc = m_graph_datum->seg_exc_list[seg_idx];
+                    seg_idx_new = seg_exc;
+                    stream_id = seg_exc % FLAGS_n_stream;
+                    seg_snode = m_groute_context->seg_snode_ct[seg_idx_new];                                    // start node
+                    seg_enode = m_groute_context->seg_enode_ct[seg_idx_new];                                    // end node
+                    seg_sedge_csr = m_groute_context->seg_sedge_csr_ct[seg_idx_new];                            // start edge
+                    seg_nedges_csr = m_groute_context->seg_nedge_csr_ct[seg_idx_new]; 
+                        
                     m_csr_dev_graph_allocator->SwitchExp(stream_id);
-                    if(m_graph_datum->m_weighted == true){
-                        m_graph_datum->m_csr_edge_weight_datum.AllocateDevMirror_edge_explicit_step(csr_graph_host,seg_nedges_csr,seg_sedge_csr,stream[stream_id],stream_id);   
+                    if(m_graph_datum->m_weighted == true){ 
                         m_graph_datum->m_csr_edge_weight_datum.SwitchExp(stream_id);
                     }
                     zcflag = false;
+                    auto csr_graph = m_csr_dev_graph_allocator->DeviceObject();
+
+                    //LOG("PUSHDD RUN in round(%d)\t|batch(%d)\t|engine(%s)\t|range(%d,%d)\n",m_running_info.current_round,seg_idx_new,zcflag?"ZC":"Exp",seg_snode,seg_enode);
+                    RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
+                       csr_graph,
+                       graph_datum,
+                       m_engine_options,
+                       stream[stream_id]); 
+                    }
+                    else{
+                        continue;
+                    }            
                 }
-                else{
-                    //printf("zero\n");
-                    m_running_info.zerocopy_num++;
-                    m_csr_dev_graph_allocator->SwitchZC();
-                    m_graph_datum->m_csr_edge_weight_datum.SwitchZC();
-                    zcflag = true;
-                    seg_idx_new = FLAGS_SEGMENT - 1;
-                }
-            auto csr_graph = m_csr_dev_graph_allocator->DeviceObject();
-		//LOG("PUSHDD RUN in round(%d)\t|batch(%d)\t|engine(%s)\t|range(%d,%d)\n",m_running_info.current_round,seg_idx_new,zcflag?"ZC":"Exp",seg_snode,seg_enode);
-		RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
-           csr_graph,
-           graph_datum,
-           m_engine_options,
-           stream[stream_id]);            
-  }
-       for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
-             stream[stream_idx].Sync();
-       }
-       sw_round.stop();
-       if(seg_exc >= FLAGS_n_stream && FLAGS_residence == 1){
-        
-       for(index_t seg_idx = 0; seg_idx < FLAGS_n_stream; seg_idx++){
-            if(m_graph_datum->seg_exc_list[seg_idx] != -1){
-                    index_t seg_exc = m_graph_datum->seg_exc_list[seg_idx];
-
-                    stream_id = seg_exc % FLAGS_n_stream;
-                    seg_snode = m_groute_context->seg_snode_ct[seg_exc];                                    // start node
-                    seg_enode = m_groute_context->seg_enode_ct[seg_exc];  
-                    RebuildArrayWorklist(app_inst,
-                        graph_datum,
-                        stream[stream_id],seg_snode,seg_enode - seg_snode,seg_exc);
-
-            }
-            else{
-                continue;
-            }
-        }
-
-        for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
+                for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
                     stream[stream_idx].Sync();
-        }
-
-        for(index_t seg_idx = 0; seg_idx < FLAGS_n_stream ; seg_idx++){
-            if(m_graph_datum->seg_exc_list[seg_idx] != -1){
-            index_t seg_exc = m_graph_datum->seg_exc_list[seg_idx];
-            seg_idx_new = seg_exc;
-            stream_id = seg_exc % FLAGS_n_stream;
-            seg_snode = m_groute_context->seg_snode_ct[seg_idx_new];                                    // start node
-            seg_enode = m_groute_context->seg_enode_ct[seg_idx_new];                                    // end node
-            seg_sedge_csr = m_groute_context->seg_sedge_csr_ct[seg_idx_new];                            // start edge
-            seg_nedges_csr = m_groute_context->seg_nedge_csr_ct[seg_idx_new]; 
-                
-            m_csr_dev_graph_allocator->SwitchExp(stream_id);
-            if(m_graph_datum->m_weighted == true){ 
-                m_graph_datum->m_csr_edge_weight_datum.SwitchExp(stream_id);
+                    m_graph_datum->seg_exc_list[stream_idx] = -1;
+                }
             }
-            zcflag = false;
-            auto csr_graph = m_csr_dev_graph_allocator->DeviceObject();
+          
+          m_running_info.time_round = sw_round.ms();	
+          PostComputationBW();
+          sw_execution.stop();
 
-            //LOG("PUSHDD RUN in round(%d)\t|batch(%d)\t|engine(%s)\t|range(%d,%d)\n",m_running_info.current_round,seg_idx_new,zcflag?"ZC":"Exp",seg_snode,seg_enode);
-            RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
-               csr_graph,
-               graph_datum,
-               m_engine_options,
-               stream[stream_id]); 
-            }
-            else{
-                continue;
-            }            
-        }
-        for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
-            stream[stream_idx].Sync();
-            m_graph_datum->seg_exc_list[stream_idx] = -1;
-        }
-    }
-  
-  m_running_info.time_round = sw_round.ms();	
-  PostComputationBW();
-  sw_execution.stop();
-
-  m_running_info.time_kernel += sw_execution.ms();
+          m_running_info.time_kernel += sw_execution.ms();
 }
 
 
@@ -734,11 +756,14 @@ namespace sepgraph {
                 GraphDatum &graph_datum = *m_graph_datum;
                 AppImplDeviceObject &app_inst = *m_app_inst;
                 graph_datum.m_wl_array_in_seg[FLAGS_SEGMENT - 1].ResetAsync(stream_seg.cuda_stream);
+                graph_datum.m_wl_array_in_seg[FLAGS_SEGMENT].ResetAsync(stream_seg.cuda_stream);
                 stream_seg.Sync();
                 Stopwatch sw_unique(true);
                 index_t seg_snode,seg_enode;
                 index_t stream_id;
-                bool task = false;
+                index_t task = 1;// zero:0 exp_filter:1 exp_compaction:2
+                bool zc = false;
+                bool compaction = false;
                 Stopwatch sw_rebuild(true);
                 index_t seg_idx_ct = 0;
                 for(index_t seg_idx = 0; seg_idx < FLAGS_SEGMENT; seg_idx++){  
@@ -749,31 +774,53 @@ namespace sepgraph {
                     m_groute_context->seg_snode_ct[seg_idx_ct] = seg_snode;
 
                     if(algo_variant[seg_idx] == AlgoVariant::Zero_Copy){
-                        task = true;
+                        task = 0;
+                        zc = true;
                         while(algo_variant[seg_idx + 1] == AlgoVariant::Zero_Copy && seg_idx < FLAGS_SEGMENT - 1){
                             seg_idx++;
                             m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
                         }
                     }
+                    if(algo_variant[seg_idx] == AlgoVariant::Exp_Compaction){
+                        task = 2;
+                        compaction = true;
+                        //printf("Compaction\n");
+                        while(algo_variant[seg_idx + 1] == AlgoVariant::Exp_Compaction && seg_idx < FLAGS_SEGMENT - 1){
+                            seg_idx++;
+                            m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
+                        }
+                    }
+
                     seg_enode = m_groute_context->seg_enode[seg_idx];
                     m_groute_context->seg_enode_ct[seg_idx_ct] = seg_enode; 
                     //printf("seg_idx:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx,seg_snode,seg_enode,m_groute_context->seg_sedge_csr_ct[seg_idx_ct],m_groute_context->seg_nedge_csr_ct[seg_idx_ct]); 
-                    if(task){
-                        task = false;
+                    if(task == 0){
+                        task = 1;
                         RebuildArrayWorklist_zero(app_inst,
                             graph_datum,
                             stream[stream_id],seg_snode,seg_enode - seg_snode,FLAGS_SEGMENT - 1);
                     }
-                    else{
+                    else if(task == 1)
+                    {
                         algo_variant[seg_idx_ct] = AlgoVariant::Exp_Filter;
                         RebuildArrayWorklist(app_inst,
                             graph_datum,
                             stream[stream_id],seg_snode,seg_enode - seg_snode,seg_idx_ct++);
 
                     }
+                    else if(task == 2){
+                        task = 1;
+                        RebuildArrayWorklist_compaction(app_inst,
+                            graph_datum,
+                            stream[stream_id],seg_snode,seg_enode - seg_snode,FLAGS_SEGMENT);
+                    }
                 }
-                if(seg_idx_ct < FLAGS_SEGMENT)
+                if(zc){
                     algo_variant[seg_idx_ct++] = AlgoVariant::Zero_Copy;
+                }
+                if(compaction){
+                    algo_variant[seg_idx_ct++] = AlgoVariant::Exp_Compaction;
+                }
 
                 for(index_t stream_idx = 0; stream_idx < FLAGS_n_stream ; stream_idx++){
                     stream[stream_idx].Sync();
@@ -791,6 +838,10 @@ namespace sepgraph {
                             Stopwatch sw_priority(true);
                             if(algo_variant[seg_idx] == AlgoVariant::Zero_Copy){
                                 graph_datum.seg_res_num[seg_idx] = 0;
+                                continue;
+                            }
+                            if(algo_variant[seg_idx] == AlgoVariant::Exp_Compaction){
+                                graph_datum.seg_res_num[seg_idx] = -1;
                                 continue;
                             }
                             graph_datum.m_seg_value.set_val_H2DAsync(0, stream[stream_id].cuda_stream);
@@ -811,11 +862,167 @@ namespace sepgraph {
                     }
 
                 }
+                graph_datum.Compaction_num = 0;
                 sw_unique.stop();
                 m_running_info.time_overhead_wl_unique += sw_unique.ms();
 
           }
+            void dynamic(uint32_t tId,
+                            uint32_t numThreads,    
+                            uint32_t numActiveNodes,
+                            uint32_t *activeNodes,
+                            uint32_t *activeNodesPointer,
+                            uint64_t *nodePointer, 
+                            uint32_t *activeEdgeList,
+                            uint32_t *edgeList)
+            {
 
+                uint32_t chunkSize = ceil(numActiveNodes / numThreads);
+                uint32_t left, right;
+                left = tId * chunkSize;
+                right = min(left+chunkSize, numActiveNodes);    
+                
+                uint32_t thisNode;
+                uint32_t thisDegree;
+                uint32_t fromHere;
+                uint32_t fromThere;
+
+                for(uint32_t i=left; i<right; i++)
+                {
+                    thisNode = activeNodes[i];
+                    thisDegree = activeNodesPointer[i + 1] - activeNodesPointer[i];
+                    fromHere = activeNodesPointer[i];
+                    fromThere = nodePointer[thisNode];
+                    for(uint32_t j=0; j<thisDegree; j++)
+                    {
+                        activeEdgeList[fromHere+j] = edgeList[fromThere+j];
+                    }
+                }
+                
+            }
+
+            void dynamic_weight(uint32_t tId,
+                            uint32_t numThreads,    
+                            uint32_t numActiveNodes,
+                            uint32_t *activeNodes,
+                            uint32_t *activeNodesPointer,
+                            uint64_t *nodePointer, 
+                            uint32_t *activeEdgeList,
+                            uint32_t *edgeList,
+                            uint32_t *activeEdgeListWeight,
+                            uint32_t *edgeListWeight)
+            {
+
+                uint32_t chunkSize = ceil(numActiveNodes / numThreads);
+                uint32_t left, right;
+                left = tId * chunkSize;
+                right = min(left+chunkSize, numActiveNodes);    
+                
+                uint32_t thisNode;
+                uint32_t thisDegree;
+                uint32_t fromHere;
+                uint32_t fromThere;
+
+                for(uint32_t i=left; i<right; i++)
+                {
+                    thisNode = activeNodes[i];
+                    thisDegree = activeNodesPointer[i + 1] - activeNodesPointer[i];
+                    fromHere = activeNodesPointer[i];
+                    fromThere = nodePointer[thisNode];
+                    for(uint32_t j=0; j<thisDegree; j++)
+                    {
+                        activeEdgeList[fromHere+j] = edgeList[fromThere+j];
+                        activeEdgeListWeight[fromHere+j] = edgeListWeight[fromThere+j];
+                    }
+                }
+                
+            }
+          void Compaction() {
+                int dev_id = 0;
+                const groute::Stream &stream_seg = m_groute_context->CreateStream(dev_id);
+                GraphDatum &graph_datum = *m_graph_datum;
+                AppImplDeviceObject &app_inst = *m_app_inst;
+                auto csr_graph = m_csr_dev_graph_allocator->DeviceObject();
+                auto &csr_graph_host = m_csr_dev_graph_allocator->HostObject();
+                thrust::device_ptr<uint32_t> ptr_labeling(graph_datum.activeNodesLabeling.dev_ptr);
+                thrust::device_ptr<uint32_t> ptr_labeling_prefixsum(graph_datum.prefixLabeling.dev_ptr);
+
+                graph_datum.subgraphnodes = thrust::reduce(ptr_labeling, ptr_labeling + graph_datum.nnodes);
+
+                thrust::exclusive_scan(ptr_labeling, ptr_labeling + graph_datum.nnodes, ptr_labeling_prefixsum);
+
+                kernel::makeQueue<<<graph_datum.nnodes/512+1, 512>>>(csr_graph.subgraph_activenode, graph_datum.activeNodesLabeling.dev_ptr, graph_datum.prefixLabeling.dev_ptr, graph_datum.nnodes);
+
+                GROUTE_CUDA_CHECK(cudaMemcpy(csr_graph_host.subgraph_activenode, csr_graph.subgraph_activenode, graph_datum.subgraphnodes*sizeof(uint32_t), cudaMemcpyDeviceToHost));
+
+                thrust::device_ptr<uint32_t> ptr_degrees(graph_datum.activeNodesDegree.dev_ptr);
+                thrust::device_ptr<uint32_t> ptr_degrees_prefixsum(graph_datum.prefixSumDegrees.dev_ptr);
+
+                thrust::exclusive_scan(ptr_degrees, ptr_degrees + graph_datum.nnodes, ptr_degrees_prefixsum);
+
+                kernel::makeActiveNodesPointer<<<graph_datum.nnodes/512+1, 512>>>(csr_graph.subgraph_rowstart, graph_datum.activeNodesLabeling.dev_ptr, graph_datum.prefixLabeling.dev_ptr, graph_datum.prefixSumDegrees.dev_ptr, graph_datum.nnodes);
+                
+                GROUTE_CUDA_CHECK(cudaMemcpy(csr_graph_host.subgraph_rowstart, csr_graph.subgraph_rowstart, graph_datum.subgraphnodes*sizeof(uint32_t), cudaMemcpyDeviceToHost));
+
+                uint32_t numActiveEdges = 0;
+                uint32_t endid = csr_graph_host.subgraph_activenode[graph_datum.subgraphnodes-1];
+                uint32_t outDegree = csr_graph_host.end_edge(endid) - csr_graph_host.begin_edge(endid);
+                if(graph_datum.subgraphnodes > 0)
+                    numActiveEdges = csr_graph_host.subgraph_rowstart[graph_datum.subgraphnodes-1] + outDegree; 
+                
+                graph_datum.subgraphedges = numActiveEdges;
+                uint32_t last = numActiveEdges;
+
+                GROUTE_CUDA_CHECK(cudaMemcpy(csr_graph.subgraph_rowstart + graph_datum.subgraphnodes, &last, sizeof(uint32_t), cudaMemcpyHostToDevice));
+    
+                GROUTE_CUDA_CHECK(cudaMemcpy(csr_graph_host.subgraph_rowstart, csr_graph.subgraph_rowstart, (graph_datum.subgraphnodes + 1)*sizeof(uint32_t), cudaMemcpyDeviceToHost));
+
+                uint32_t numThreads = 32;
+
+                if(graph_datum.subgraphnodes < 5000)
+                    numThreads = 1;
+                std::thread runThreads[numThreads];
+                if(m_graph_datum->m_weighted == false){
+                    for(uint32_t t=0; t<numThreads; t++)
+                    {
+
+                        runThreads[t] = std::thread([&](){dynamic(
+                                                t,
+                                                numThreads,
+                                                graph_datum.subgraphnodes,
+                                                csr_graph_host.subgraph_activenode,
+                                                csr_graph_host.subgraph_rowstart,
+                                                csr_graph_host.row_start, 
+                                                csr_graph_host.subgraph_edgedst,
+                                                csr_graph_host.edge_dst);});
+
+                    }
+                        
+                    for(unsigned int t=0; t<numThreads; t++)
+                        runThreads[t].join();
+               }
+
+               else{
+                    for(uint32_t t=0; t<numThreads; t++)
+                    {
+
+                        runThreads[t] = std::thread([&](){dynamic_weight(
+                                                t,
+                                                numThreads,
+                                                graph_datum.subgraphnodes,
+                                                csr_graph_host.subgraph_activenode, 
+                                                csr_graph_host.subgraph_rowstart,
+                                                csr_graph_host.row_start, 
+                                                csr_graph_host.subgraph_edgedst,
+                                                csr_graph_host.edge_dst,
+                                                csr_graph_host.subgraph_edgeweight,
+                                                csr_graph_host.edge_weights);});
+                    }
+                        
+                    for(unsigned int t=0; t<numThreads; t++)
+                        runThreads[t].join();
+               }
+          }
 
       };
 

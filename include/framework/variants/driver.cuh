@@ -186,20 +186,74 @@ namespace sepgraph {
                               WorkSource work_source,
                               groute::dev::Queue<index_t> work_target,
                               GraphDatum<TBuffer> node_buffer_datum,
-                              GraphDatum<TValue> node_value_datum) {
+                              GraphDatum<TValue> node_value_datum,
+                              uint32_t *activeNodesLabeling,
+                              uint32_t *activeNodesDegree) {
             uint32_t tid = TID_1D;
             uint32_t nthreads = TOTAL_THREADS_1D;
             uint32_t work_size = work_source.get_size();
 
             for (index_t i = 0 + tid; i < work_size; i += nthreads) {
                 index_t node = work_source.get_work(i);
-
+                activeNodesLabeling[node] = 0;
+                activeNodesDegree[node] = 0;
                 if (app_inst.IsActiveNode(node, node_buffer_datum.get_item(node), node_value_datum.get_item(node))) {
                     work_target.append(node);
                 }
             }
         }
-/*Code by AX range 252 to 311*/
+
+        template<typename TAppInst,
+                typename WorkSource,
+                template<typename> class GraphDatum,
+                typename TBuffer,
+                typename TValue>
+        __global__
+        void RebuildWorklist_compaction(TAppInst app_inst,
+                              WorkSource work_source,
+                              groute::dev::Queue<index_t> work_target,
+                              GraphDatum<TBuffer> node_buffer_datum,
+                              GraphDatum<TValue> node_value_datum,
+                              uint32_t *activeNodesLabeling,
+                              uint32_t *activeNodesDegree,
+                              uint32_t *p_out_degree) {
+            uint32_t tid = TID_1D;
+            uint32_t nthreads = TOTAL_THREADS_1D;
+            uint32_t work_size = work_source.get_size();
+
+            for (index_t i = 0 + tid; i < work_size; i += nthreads) {
+                index_t node = work_source.get_work(i);
+                activeNodesLabeling[node] = 0;
+                activeNodesDegree[node] = 0;
+                if (app_inst.IsActiveNode(node, node_buffer_datum.get_item(node), node_value_datum.get_item(node))) {
+                    work_target.append(node);
+                    activeNodesLabeling[node] = 1;
+                    activeNodesDegree[node] = p_out_degree[node];
+                }
+            }
+        }
+
+        __global__ void makeQueue(uint32_t *activeNodes, uint32_t *activeNodesLabeling,
+                                    uint32_t *prefixLabeling, uint32_t numNodes)
+        {
+            uint32_t id = blockDim.x * blockIdx.x + threadIdx.x;
+            if(id < numNodes && activeNodesLabeling[id] == 1){
+                activeNodes[prefixLabeling[id]] = id;
+            }
+        }
+
+        __global__ void makeActiveNodesPointer(uint32_t *activeNodesPointer, uint32_t *activeNodesLabeling, 
+                                                    uint32_t *prefixLabeling, uint32_t *prefixSumDegrees, 
+                                                    uint32_t numNodes)
+        {
+            uint32_t id = blockDim.x * blockIdx.x + threadIdx.x;
+            if(id < numNodes && activeNodesLabeling[id] == 1){
+                activeNodesPointer[prefixLabeling[id]] = prefixSumDegrees[id];
+            }
+        }
+
+
+
         template<typename TAppInst,
                  typename WorkSource,
 		         template<typename> class GraphDatum,
@@ -1066,13 +1120,12 @@ namespace sepgraph {
 			             uint64_t seg_sedge_csr,
 			             bool zcflag,
                          WorkSource work_source,
-                         CSRGraph csr_graph,
+                         const CSRGraph csr_graph,
                          GraphDatum<TValue> node_value_datum,
                          GraphDatum<TBuffer> node_buffer_datum,
                          GraphDatum<TWeight> edge_weight_datum,
                          BitmapDeviceObject out_active,
                          BitmapDeviceObject in_active) {
-
                 sync_push_dd::RelaxCTADB<LB, false>(app_inst,seg_snode,seg_enode,seg_sedge_csr,zcflag,
                                                    work_source,
                                                    csr_graph,
@@ -1084,6 +1137,38 @@ namespace sepgraph {
                                                    in_active);
             
         }
+
+                 template<LoadBalancing LB,
+                typename TAppInst,
+                typename WorkSource,
+                typename CSRGraph,
+                template<typename> class GraphDatum,
+                typename TValue,
+                typename TBuffer,
+                typename TWeight>
+        __global__
+        void SyncPushDDB_COM(TAppInst app_inst,
+                         WorkSource work_source,
+                         const CSRGraph csr_graph,
+                         GraphDatum<TValue> node_value_datum,
+                         GraphDatum<TBuffer> node_buffer_datum,
+                         GraphDatum<TWeight> edge_weight_datum,
+                         BitmapDeviceObject out_active,
+                         BitmapDeviceObject in_active) {
+
+                sync_push_dd::RelaxCTADB_COM<LB, false>(app_inst,
+                                                   work_source,
+                                                   csr_graph,
+                                                   node_value_datum,
+                                                   node_buffer_datum,
+                                                   edge_weight_datum,
+                                                   (TBuffer) 0,
+                                                   out_active,
+                                                   in_active);
+            
+        }
+
+
         template<LoadBalancing LB,
                 typename TAppInst,
                 typename WorkSource,

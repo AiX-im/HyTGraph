@@ -92,13 +92,15 @@ namespace sepgraph
                     graph_datum.GetWorkSourceRangeDeviceObject(seg_snode,seg_nnodes),
                     graph_datum.m_wl_array_in_seg[seg_idx].DeviceObject(),
                     graph_datum.GetBufferDeviceObject(),
-		            graph_datum.GetValueDeviceObject()
+		            graph_datum.GetValueDeviceObject(),
+                    graph_datum.activeNodesLabeling.dev_ptr,
+                    graph_datum.activeNodesDegree.dev_ptr
 		    );
 
             stream.Sync();
         }
         
-                template<typename TAppInst, typename TGraphDatum>
+        template<typename TAppInst, typename TGraphDatum>
         void RebuildArrayWorklist_zero(TAppInst &app_inst,
                                   TGraphDatum &graph_datum,
                                   const groute::Stream &stream,
@@ -117,7 +119,37 @@ namespace sepgraph
                     graph_datum.GetWorkSourceRangeDeviceObject(seg_snode,seg_nnodes),
                     graph_datum.m_wl_array_in_seg[seg_idx].DeviceObject(),
                     graph_datum.GetBufferDeviceObject(),
-                    graph_datum.GetValueDeviceObject()
+                    graph_datum.GetValueDeviceObject(),
+                    graph_datum.activeNodesLabeling.dev_ptr,
+                    graph_datum.activeNodesDegree.dev_ptr
+            );
+
+            stream.Sync();
+        }
+
+        template<typename TAppInst, typename TGraphDatum>
+        void RebuildArrayWorklist_compaction(TAppInst &app_inst,
+                                  TGraphDatum &graph_datum,
+                                  const groute::Stream &stream,
+                  index_t seg_snode,
+                  index_t seg_nnodes,
+                  index_t seg_idx)
+        {
+            dim3 grid_dims, block_dims;
+
+            //graph_datum.m_wl_array_in_seg[seg_idx].ResetAsync(stream.cuda_stream);
+
+            KernelSizing(grid_dims, block_dims, seg_nnodes);
+
+            kernel::RebuildWorklist_compaction
+                    << < grid_dims, block_dims, 0, stream.cuda_stream >> > (app_inst,
+                    graph_datum.GetWorkSourceRangeDeviceObject(seg_snode,seg_nnodes),
+                    graph_datum.m_wl_array_in_seg[seg_idx].DeviceObject(),
+                    graph_datum.GetBufferDeviceObject(),
+                    graph_datum.GetValueDeviceObject(),
+                    graph_datum.activeNodesLabeling.dev_ptr,
+                    graph_datum.activeNodesDegree.dev_ptr,
+                    graph_datum.m_out_degree.dev_ptr
             );
 
             stream.Sync();
@@ -352,7 +384,7 @@ namespace sepgraph
                 uint64_t seg_sedge_csr,
 		        index_t seg_idx,
                 bool zcflag,
-                            TCSRGraph &csr_graph,
+                            const TCSRGraph &csr_graph,
                             TGraphDatum &graph_datum,
                             EngineOptions &engine_options,
                             const groute::Stream &stream)
@@ -361,6 +393,7 @@ namespace sepgraph
             KernelSizing(grid_dims, block_dims, seg_enode-seg_snode);
             uint32_t work_size = graph_datum.m_wl_array_in_seg[seg_idx].GetCount(stream);
             //printf("work_size:%d\n",work_size);
+
             //KernelSizing(grid_dims, block_dims, work_size);
             switch (engine_options.GetLoadBalancing(common::MsgPassing::PUSH))
             {
@@ -435,6 +468,84 @@ namespace sepgraph
             //stream.Sync();
         }
 
+    template<typename TAppInst,
+                typename TCSRGraph,
+                typename TGraphDatum>
+        void RunSyncPushDDB_COM(TAppInst &app_inst,
+                                index_t active_count,
+                                index_t seg_idx,
+                                const TCSRGraph &csr_graph,
+                                TGraphDatum &graph_datum,
+                                EngineOptions &engine_options,
+                                const groute::Stream &stream)
+        {
+            dim3 grid_dims, block_dims;
+            KernelSizing(grid_dims, block_dims, active_count);
+            uint32_t work_size = graph_datum.m_wl_array_in_seg[seg_idx].GetCount(stream);
+            switch (engine_options.GetLoadBalancing(common::MsgPassing::PUSH))
+            {
+                case LoadBalancing::NONE:
+                    kernel::SyncPushDDB_COM<LoadBalancing::NONE>
+                            << < grid_dims, block_dims, 0, stream.cuda_stream >> > (app_inst,
+                                 groute::dev::WorkSourceArray<index_t>(
+                                        graph_datum.m_wl_array_in_seg[seg_idx].GetDeviceDataPtr(),
+                                        work_size),
+                            csr_graph,
+                            graph_datum.GetValueDeviceObject(),
+                            graph_datum.GetBufferDeviceObject(),
+                            graph_datum.GetEdgeWeightDeviceObject(),
+                            graph_datum.m_wl_bitmap_out_high.DeviceObject(),
+                            graph_datum.m_wl_bitmap_in.DeviceObject());
+                    break;
+                case LoadBalancing::COARSE_GRAINED:
+                    kernel::SyncPushDDB_COM<LoadBalancing::COARSE_GRAINED>
+                            << < grid_dims, block_dims, 0, stream.cuda_stream >> > (app_inst,
+                                 groute::dev::WorkSourceArray<index_t>(
+                                         graph_datum.m_wl_array_in_seg[seg_idx].GetDeviceDataPtr(),
+                                         work_size),
+                            csr_graph,
+                            graph_datum.GetValueDeviceObject(),
+                            graph_datum.GetBufferDeviceObject(),
+                            graph_datum.GetEdgeWeightDeviceObject(),
+                            graph_datum.m_wl_bitmap_out_high.DeviceObject(),
+                            graph_datum.m_wl_bitmap_in.DeviceObject());
+                    break;
+                case LoadBalancing::FINE_GRAINED:
+                    kernel::SyncPushDDB_COM<LoadBalancing::FINE_GRAINED>
+                            << < grid_dims, block_dims, 0, stream.cuda_stream >> > (app_inst,
+                                 groute::dev::WorkSourceArray<index_t>(
+                                         graph_datum.m_wl_array_in_seg[seg_idx].GetDeviceDataPtr(),
+                                         work_size),
+                            csr_graph,
+                            graph_datum.GetValueDeviceObject(),
+                            graph_datum.GetBufferDeviceObject(),
+                            graph_datum.GetEdgeWeightDeviceObject(),
+                            graph_datum.m_wl_bitmap_out_high.DeviceObject(),
+                            graph_datum.m_wl_bitmap_in.DeviceObject());
+                    break;
+                case LoadBalancing::HYBRID:
+                    kernel::SyncPushDDB_COM<LoadBalancing::HYBRID>
+                            << < grid_dims, block_dims, 0, stream.cuda_stream >> > (app_inst,
+                                 groute::dev::WorkSourceArray<index_t>(
+                                         graph_datum.m_wl_array_in_seg[seg_idx].GetDeviceDataPtr(),
+                                         work_size),
+                            csr_graph,
+                            graph_datum.GetValueDeviceObject(),
+                            graph_datum.GetBufferDeviceObject(),
+                            graph_datum.GetEdgeWeightDeviceObject(),
+                            graph_datum.m_wl_bitmap_out_high.DeviceObject(),
+                            graph_datum.m_wl_bitmap_in.DeviceObject());
+                    break;
+                default:
+                    assert(false);
+            }
+
+
+            //index_t activenum = graph_datum.m_wl_bitmap_out_high.GetPositiveCount(stream);
+            //printf("segid:%d activenum:%d\n",seg_idx,activenum);
+            //graph_datum.m_wl_bitmap_out_high.ResetAsync(stream);
+            //stream.Sync();
+        }
         /*forsep-graph+ */
         template<typename TAppInst,
                 typename TCSRGraph,

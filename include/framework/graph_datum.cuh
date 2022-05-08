@@ -72,7 +72,13 @@ namespace sepgraph {
             groute::graphs::single::EdgeInputDatum<TWeight> m_csr_edge_weight_datum;
             groute::graphs::single::EdgeInputDatum<TWeight> m_csc_edge_weight_datum;
 
-
+            //Subgraph data
+            utils::SharedArray<uint32_t> activeNodesLabeling;
+            utils::SharedArray<uint32_t> activeNodesDegree;
+            utils::SharedArray<uint32_t> prefixLabeling;
+            utils::SharedArray<uint32_t> prefixSumDegrees;
+            uint32_t subgraphnodes,subgraphedges;
+            uint32_t Compaction_num;
             // Running data
             utils::SharedValue<uint32_t> m_active_nodes;
 
@@ -91,6 +97,10 @@ namespace sepgraph {
                                                                           nedges(csr_graph.nedges),
                                                                           m_in_degree(nullptr, 0),
                                                                           m_out_degree(nullptr, 0),
+                                                                          activeNodesDegree(nullptr, 0),
+                                                                          activeNodesLabeling(nullptr, 0),
+                                                                          prefixLabeling(nullptr, 0),
+                                                                          prefixSumDegrees(nullptr, 0),
                                                                           m_sampled_nodes(nullptr, 0),
                                                                           m_sampled_values(nullptr, 0),
                                                                           m_on_pinned_memory(OnPinnedMemory){
@@ -100,42 +110,31 @@ namespace sepgraph {
 
                 // Weighted graph
                 if (typeid(TWeight) != typeid(groute::graphs::NoWeight)) {
-		            printf("test_weight\n");
 		            m_csr_edge_weight_datum.Allocate_node(csr_graph,seg_max_edge);
                     m_weighted = true;
                 }
                 else{
 		             m_weighted = false;
 		        }   
-                // Graph data
-                //m_in_degree = std::move(utils::SharedArray<uint32_t>(nnodes));
-                //m_out_degree = std::move(utils::SharedArray<uint32_t>(nnodes));
-		
-                // 2 type Worklist
+
                 uint32_t capacity = nnodes * FLAGS_wl_alloc_factor;
-//              uint32_t capacity = nnodes;
 
 		        for(index_t i = 0; i < segment - 1; i++){
 		              m_wl_array_in_seg[i] = std::move(groute::Queue<index_t>(nnodes_num[i]));
                       //m_wl_array_in_seg[i] = std::move(groute::Queue<index_t>(nnodes));
 		        }
                 m_wl_array_in_seg[segment - 1] = std::move(groute::Queue<index_t>(nnodes)); //for zero task combine
+                m_wl_array_in_seg[segment] = std::move(groute::Queue<index_t>(nnodes)); //for compaction task combine
 
-                //m_wl_array_in = std::move(groute::Queue<index_t>(nnodes));
-                //m_wl_array_out_low = std::move(groute::Queue<index_t>(capacity));
-                //m_wl_array_out_high = std::move(groute::Queue<index_t>(capacity));
-                //m_wl_middle = std::move(groute::Queue<index_t>(nnodes)); // middle worklist for pull+dd
-		        //m_wl_array_seg = std::move(groute::Queue<index_t>(capacity));
-		/*Code by AX range 110 to 112*/
 		        seg_active_num = std::move(std::vector<index_t>(segment));
 		        seg_workload_num = std::move(std::vector<index_t>(segment));
 		        seg_res_num = std::move(std::vector<TValue>(segment));
 		        seg_exc_list = std::move(std::vector<index_t>(segment));
 
-                //m_wl_bitmap_in = std::move(Bitmap(nnodes));
-                //m_wl_bitmap_out_high = std::move(Bitmap(nnodes));
-                //m_wl_bitmap_out_low = std::move(Bitmap(nnodes));
-                //m_wl_bitmap_middle = std::move(Bitmap(nnodes));
+                GROUTE_CUDA_CHECK(cudaMalloc(&activeNodesLabeling.dev_ptr, nnodes * sizeof(uint32_t)));
+                GROUTE_CUDA_CHECK(cudaMalloc(&activeNodesDegree.dev_ptr, nnodes * sizeof(uint32_t)));
+                GROUTE_CUDA_CHECK(cudaMalloc(&prefixLabeling.dev_ptr, nnodes * sizeof(uint32_t)));
+                GROUTE_CUDA_CHECK(cudaMalloc(&prefixSumDegrees.dev_ptr, (nnodes + 1) * sizeof(uint32_t)));
 
                 m_sampled_nodes = std::move(utils::SharedArray<index_t>(PRIORITY_SAMPLE_SIZE));
                 m_sampled_values = std::move(utils::SharedArray<TBuffer>(PRIORITY_SAMPLE_SIZE));

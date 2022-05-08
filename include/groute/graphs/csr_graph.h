@@ -111,6 +111,10 @@ namespace groute
                 std::vector<uint64_t> row_start_vec; // the vectors are not always in use (see Bind)
                 std::vector<index_t> edge_dst_vec;
                 std::vector<index_t> edge_weights_vec;
+                uint32_t *subgraph_activenode;
+                uint32_t *subgraph_rowstart;
+                uint32_t *subgraph_edgedst;
+                uint32_t *subgraph_edgeweight;
 
                 CSRGraph(index_t nnodes, uint64_t nedges) : CSRGraphBase(nnodes, nedges, nullptr, nullptr),
                                                            row_start_vec(nnodes + 1), edge_dst_vec(nedges)
@@ -127,6 +131,9 @@ namespace groute
                 {
                 }
 
+                void Subgraph_Generate(){
+
+                }
                 void Move(index_t nnodes, uint64_t nedges,
                           std::vector<uint64_t> &row_start, std::vector<index_t> &edge_dst)
                 {
@@ -167,7 +174,13 @@ namespace groute
 
                     this->edge_weights = edge_weights;
                     this->node_weights = node_weights;
+
+                    this->subgraph_activenode = (uint32_t *) calloc((nnodes), sizeof(uint32_t));
+                    this->subgraph_rowstart = (uint32_t *) calloc((nnodes + 1), sizeof(uint32_t));
+                    this->subgraph_edgedst = (uint32_t *) calloc((nedges / 4), sizeof(uint32_t));
+                    this->subgraph_edgeweight = (uint32_t *) calloc((nedges / 4), sizeof(uint32_t));
                 }
+
 
                 index_t max_degree() const
                 {
@@ -713,6 +726,12 @@ namespace groute
             {
                 index_t *edge_dst_zc;
 		        index_t *edge_dst_exp[64];
+                index_t *edge_dst_com;
+
+                //for subgraph compaction
+                uint32_t *subgraph_activenode;
+                uint32_t *subgraph_rowstart;
+                uint32_t *subgraph_edgedst;
                 CSRGraph()
                 {
                 }
@@ -891,6 +910,7 @@ namespace groute
                 T *data_ptr;
 		        T *data_ptr_zc;
 		        T *data_ptr_exp[64];
+                T *data_ptr_com;
 		
                 index_t size;
 
@@ -971,15 +991,27 @@ namespace groute
                 {
                     m_dev_mirror.edge_dst = m_dev_mirror.edge_dst_zc;
                 }
+
                 void SwitchExp(index_t i)
                 {
-		          m_dev_mirror.edge_dst = m_dev_mirror.edge_dst_exp[i];      
+		            m_dev_mirror.edge_dst = m_dev_mirror.edge_dst_exp[i];      
+                }
+
+                void SwitchCom()
+                {
+                    m_dev_mirror.edge_dst = m_dev_mirror.edge_dst_com;      
                 }
 
                 void AllocateDevMirror_Edge_Explicit_Step(uint64_t seg_nedges, uint64_t seg_sedge,const groute::Stream &stream,index_t id)
                 {
-                    AllocateDevMirror_edge_explicit_step(seg_nedges, seg_sedge,stream,id);
+                    AllocateDevMirror_edge_explicit_step(seg_nedges, seg_sedge, stream,id);
                 }
+
+                void AllocateDevMirror_Edge_Compaction(uint64_t seg_nedges, const groute::Stream &stream)
+                {
+                    AllocateDevMirror_edge_compaction(seg_nedges,stream);
+                }
+
                 void AllocateDevMirror_Edge_Zero()
                 {
                     AllocateDevMirror_edge_zero();
@@ -1021,14 +1053,19 @@ namespace groute
     		            for(index_t i = 0; i < FLAGS_n_stream; i++){
     			             GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.edge_dst_exp[i], seg_nedges * sizeof(index_t))); 
     		            }
+                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_activenode, (nnodes) * sizeof(uint32_t)));
+                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_rowstart, (nnodes + 1) * sizeof(uint32_t)));
+                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_edgedst, (nedges/4) * sizeof(uint32_t)));
+                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.edge_dst_com, nedges/4 * sizeof(uint32_t)));
+                        GROUTE_CUDA_CHECK(cudaHostRegister((void *)m_origin_graph.subgraph_edgedst, nedges/4 * sizeof(index_t), cudaHostRegisterMapped));
 		            }
                     GROUTE_CUDA_CHECK(cudaHostRegister((void *)m_origin_graph.edge_dst, sizeof(index_t) * nedges, cudaHostRegisterMapped));
-                    GROUTE_CUDA_CHECK(
-                        cudaMalloc(&m_dev_mirror.row_start, (nnodes + 1) *
-                                                                sizeof(uint64_t))); // malloc and copy +1 for the row_start's extra cell
+
+                    GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.row_start, (nnodes + 1) * sizeof(uint64_t))); // malloc and copy +1 for the row_start's extra cell
                     GROUTE_CUDA_CHECK(
                         cudaMemcpy(m_dev_mirror.row_start, m_origin_graph.row_start, (nnodes + 1) * sizeof(uint64_t),
                                    cudaMemcpyHostToDevice));
+
                 }
                 void AllocateDevMirror_edge_zero()
                 {
@@ -1043,13 +1080,21 @@ namespace groute
                                    cudaMemcpyHostToDevice,stream.cuda_stream));  	    	      
                 }
 
+                void AllocateDevMirror_edge_compaction(uint64_t seg_nedges, const groute::Stream &stream)
+                {
+                      GROUTE_CUDA_CHECK(
+                            cudaMemcpyAsync(m_dev_mirror.edge_dst_com, m_origin_graph.subgraph_edgedst,
+                                   seg_nedges * sizeof(index_t),
+                                   cudaMemcpyHostToDevice,stream.cuda_stream));                   
+                }
+
                 void DeallocateDevMirror()
                 {
                     GROUTE_CUDA_CHECK(cudaFree(m_dev_mirror.row_start));
-                    if (!m_on_pinned_memory)
-        		    for(index_t i = 0; i < FLAGS_n_stream; i++){
-        			     GROUTE_CUDA_CHECK(cudaFree(m_dev_mirror.edge_dst_exp[i]));
-        		    }
+              //       if (!m_on_pinned_memory)
+        		    // for(index_t i = 0; i < FLAGS_n_stream; i++){
+        			   //   GROUTE_CUDA_CHECK(cudaHostFree(m_dev_mirror.edge_dst_exp[i]));
+        		    // }
 
                     m_dev_mirror.row_start = nullptr;
                     m_dev_mirror.edge_dst = nullptr;
@@ -1306,13 +1351,19 @@ if(m_on_pinned_memory){
 
                 void SwitchZC()
                 {
-		    m_dev_datum.data_ptr = m_dev_datum.data_ptr_zc;
+		              m_dev_datum.data_ptr = m_dev_datum.data_ptr_zc;
                 }
+
                 void SwitchExp(index_t i)
                 {
-		    m_dev_datum.data_ptr = m_dev_datum.data_ptr_exp[i];
+		              m_dev_datum.data_ptr = m_dev_datum.data_ptr_exp[i];
                 }
                 
+                void SwitchCom()
+                {
+                      m_dev_datum.data_ptr = m_dev_datum.data_ptr_com;
+                }
+
                 // Ideally, when NoWeight type is used, this branch will not be executed
                 void Allocate_node(const graphs::GraphBase &host_graph,uint64_t edge_max)
                 {
@@ -1348,6 +1399,7 @@ if(m_on_pinned_memory){
     			         for(index_t i = 0; i < FLAGS_n_stream; i++){
     			             GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_datum.data_ptr_exp[i], edge_max * sizeof(T))); 
     			         }
+                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_datum.data_ptr_com, edge_max * FLAGS_n_stream / 4 * sizeof(T))); 
                      }
                         m_dev_datum.size = edge_max;
  
@@ -1355,8 +1407,14 @@ if(m_on_pinned_memory){
                 
 		        void AllocateDevMirror_edge_explicit_step(const graphs::GraphBase &host_graph,uint64_t seg_nedges, uint64_t seg_sedge,const groute::Stream &stream ,index_t i)
                 {
-		        GROUTE_CUDA_CHECK(cudaMemcpyAsync(m_dev_datum.data_ptr_exp[i], m_edge_data + seg_sedge, seg_nedges * sizeof(T),
-                                                     cudaMemcpyHostToDevice,stream.cuda_stream));
+    		        GROUTE_CUDA_CHECK(cudaMemcpyAsync(m_dev_datum.data_ptr_exp[i], m_edge_data + seg_sedge, seg_nedges * sizeof(T),
+                                                         cudaMemcpyHostToDevice,stream.cuda_stream));
+                }
+
+                void AllocateDevMirror_edge_compaction(const host::CSRGraph &host_graph, uint64_t seg_nedges,const groute::Stream &stream)
+                {
+                    GROUTE_CUDA_CHECK(cudaMemcpyAsync(m_dev_datum.data_ptr_com, host_graph.subgraph_edgeweight, seg_nedges * sizeof(T),
+                                                         cudaMemcpyHostToDevice,stream.cuda_stream));
                 }
 
                 T *GetHostDataPtr()

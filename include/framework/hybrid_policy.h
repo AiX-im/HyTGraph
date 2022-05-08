@@ -236,10 +236,9 @@ namespace sepgraph
                 return init_policy;
             }
 
-            AlgoVariant GetNextPolicy(int seg_id)
+            AlgoVariant GetNextPolicy(int seg_id,uint32_t& Compaction_num)
             {
                 AlgoVariant next_policy;
-		        
                 if(FLAGS_hybrid == 2){
 		            if (m_running_info.input_active_count_seg[seg_id] > m_running_info.nnodes_seg[seg_id] * FLAGS_alpha){
 		                  next_policy = AlgoVariant::Exp_Filter;//equal explicit
@@ -251,7 +250,15 @@ namespace sepgraph
                     if (m_running_info.input_workload_seg[seg_id] > m_running_info.total_workload_seg[seg_id] * FLAGS_alpha){
 		                  next_policy = AlgoVariant::Exp_Filter;
                     }
-                    else{
+                    else if(m_running_info.input_workload_seg[seg_id] > m_running_info.total_workload_seg[seg_id] * FLAGS_beta &&
+                            m_running_info.input_workload_seg[seg_id] / m_running_info.input_active_count_seg[seg_id] < 24 &&
+                            Compaction_num < FLAGS_SEGMENT /4){
+                          next_policy = AlgoVariant::Exp_Compaction;
+                          Compaction_num++;
+
+                    }
+                    else
+                    {
 		                  next_policy = AlgoVariant::Zero_Copy;
                     }
 		        }
