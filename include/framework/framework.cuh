@@ -944,7 +944,7 @@ namespace sepgraph {
                             uint32_t *edgeListWeight)
             {
 
-                uint32_t chunkSize = ceil(numActiveNodes / numThreads);
+                uint32_t chunkSize = numActiveNodes / numThreads + 1;
                 uint32_t left, right;
 
                 left = tId * chunkSize;
@@ -986,7 +986,7 @@ namespace sepgraph {
                     fromThere = csr_graph_host.row_start[thisNode];
                     realDegree = csr_graph_host.row_start[thisNode + 1] - fromThere;
                     for(uint32_t j = 0; j < thisDegree; j++){
-                        if(csr_graph_host.subgraph_edgedst[fromHere + j] != csr_graph_host.edge_dst[fromThere + j]){
+                        if(csr_graph_host.subgraph_edgedst[fromHere + j] != csr_graph_host.edge_dst[fromThere + j] || csr_graph_host.subgraph_edgeweight[fromHere+j] != csr_graph_host.edge_weights[fromThere+j]){
                             //printf("Compaction edge:%d,real edge:%d\n",csr_graph_host.subgraph_edgedst[fromHere + j],csr_graph_host.edge_dst[fromThere + j]);
                             falseegde++;
                         }
