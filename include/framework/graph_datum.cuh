@@ -92,7 +92,7 @@ namespace sepgraph {
             GraphDatum(const groute::graphs::host::CSRGraph &csr_graph,
                        //const groute::graphs::host::CSCGraph &csc_graph,
 		               uint64_t seg_max_edge,
-                       std::vector<index_t> nnodes_num,
+                       uint32_t nnodes_num,
                                              bool OnPinnedMemory=true) : nnodes(csr_graph.nnodes),
                                                                           nedges(csr_graph.nedges),
                                                                           m_in_degree(nullptr, 0),
@@ -120,7 +120,7 @@ namespace sepgraph {
                 uint32_t capacity = nnodes * FLAGS_wl_alloc_factor;
 
 		        for(index_t i = 0; i < segment - 1; i++){
-		              m_wl_array_in_seg[i] = std::move(groute::Queue<index_t>(nnodes_num[i]));
+		              m_wl_array_in_seg[i] = std::move(groute::Queue<index_t>(nnodes_num));
                       //m_wl_array_in_seg[i] = std::move(groute::Queue<index_t>(nnodes));
 		        }
                 m_wl_array_in_seg[segment - 1] = std::move(groute::Queue<index_t>(nnodes)); //for zero task combine

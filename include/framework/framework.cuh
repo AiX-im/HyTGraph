@@ -141,7 +141,7 @@ namespace sepgraph {
 	  uint64_t edge_num = 0;		    
 	  index_t node_id = 0;
 	  uint64_t out_degree;
-	  std::vector<index_t> nnodes_num;
+      uint32_t maxnode_num = 0;
 	  seg_snode = node_id;
 	  m_groute_context->seg_snode[0] = seg_snode;
 	  for(index_t seg_idx = 0; node_id < csr_graph.nnodes ; seg_idx++){
@@ -166,7 +166,9 @@ namespace sepgraph {
 
             seg_nnodes = seg_enode - seg_snode; 
             m_running_info.nnodes_seg[seg_idx] = seg_nnodes;
-            nnodes_num.push_back(seg_nnodes);
+            if(seg_nnodes > maxnode_num){
+                maxnode_num = seg_nnodes;
+            }
 
             m_groute_context->seg_enode[seg_idx] = seg_enode;
             seg_sedge_csr = csr_graph.row_start[seg_snode];                            // start edge		    
@@ -188,7 +190,7 @@ namespace sepgraph {
                 m_csr_dev_graph_allocator = std::unique_ptr<groute::graphs::single::CSRGraphAllocator>(
                     new groute::graphs::single::CSRGraphAllocator(csr_graph,seg_nedges_csr_max));
 
-                m_graph_datum = std::unique_ptr<GraphDatum>(new GraphDatum(csr_graph,seg_nedges_csr_max,nnodes_num));
+                m_graph_datum = std::unique_ptr<GraphDatum>(new GraphDatum(csr_graph,seg_nedges_csr_max,maxnode_num));
 
                 sw_load.stop();
 
@@ -557,7 +559,6 @@ namespace sepgraph {
                             m_graph_datum->m_csr_edge_weight_datum.SwitchExp(stream_id);
                         }
                         zcflag = false;
-                        //printf("test1\n");
                         RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
                            csr_graph,
                            graph_datum,
