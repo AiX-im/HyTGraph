@@ -324,8 +324,9 @@ namespace sepgraph {
                 LOG("Total time: %f\n", m_running_info.time_total);
                 LOG("Total rounds: %d\n", m_running_info.current_round);
                 LOG("Time/round: %f\n", m_running_info.time_total / m_running_info.current_round);
-                LOG("explicit_num: %d\n", m_running_info.explicit_num);
+                LOG("filter_num: %d\n", m_running_info.explicit_num);
                 LOG("zerocopy_num: %d\n", m_running_info.zerocopy_num);
+                LOG("compaction_num: %d\n", m_running_info.compaction_num);
 
 
                 LOG("--------------Engine info-------------\n");
@@ -578,8 +579,8 @@ namespace sepgraph {
                     }
                     else{
                         //printf("Compaction\n");
+                        m_running_info.compaction_num++;
                         Compaction();
-                        check();
                         m_csr_dev_graph_allocator->AllocateDevMirror_Edge_Compaction(graph_datum.subgraphedges,stream[stream_id]);
                         m_csr_dev_graph_allocator->SwitchCom();
                         if(m_graph_datum->m_weighted == true){

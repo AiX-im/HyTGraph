@@ -731,7 +731,6 @@ namespace groute
                 //for subgraph compaction
                 uint32_t *subgraph_activenode;
                 uint32_t *subgraph_rowstart;
-                //uint32_t *subgraph_edgedst;
                 CSRGraph()
                 {
                 }
@@ -1055,7 +1054,6 @@ namespace groute
     		            }
                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_activenode, (nnodes) * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_rowstart, (nnodes + 1) * sizeof(uint32_t)));
-                        //GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_edgedst, (nedges/4) * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.edge_dst_com, nedges/4 * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaHostRegister((void *)m_origin_graph.subgraph_edgedst, nedges/4 * sizeof(index_t), cudaHostRegisterMapped));
 		            }

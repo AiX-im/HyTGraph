@@ -48,6 +48,7 @@ namespace sepgraph
             float power_law_threshold;
             uint32_t explicit_num;
             uint32_t zerocopy_num;
+            uint32_t compaction_num;
             // Algorithm related statistics
             uint32_t input_active_count;
 	        uint32_t input_active_count_seg[512];
@@ -98,6 +99,7 @@ namespace sepgraph
                 //explicit and zerocopy num
                 explicit_num = 0;
                 zerocopy_num = 0;
+                compaction_num = 0;
                 // Algorithm related statistics
                 input_active_count = 0;
                 output_active_count = 0;
