@@ -29,7 +29,3 @@ This repo contains all the source code to build SEP-Graph++.
   - mkdir build && cd build
   - cmake .. 
   - make -j 8
-
-  `
-  hello world!
-  `  
