@@ -48,7 +48,7 @@ DEFINE_int32(prio_delta, 0, "The soft priority delta");
 // DO Algorithms
 DEFINE_double(edge_factor, 1.0, "Unvisited edges = edge_factor * nedges");
 DEFINE_double(alpha, 0.8, "DO BFS/SSSP/BC heuristic parameter");
-DEFINE_double(beta, 1, "DO BFS/SSSP/BC heuristic parameter");
+DEFINE_double(beta, 0.4, "DO BFS/SSSP/BC heuristic parameter");
 
 // General
 DEFINE_string(output, "", "File to store output to");

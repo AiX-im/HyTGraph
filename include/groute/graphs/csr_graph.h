@@ -731,7 +731,7 @@ namespace groute
                 //for subgraph compaction
                 uint32_t *subgraph_activenode;
                 uint32_t *subgraph_rowstart;
-                uint32_t *subgraph_edgedst;
+                //uint32_t *subgraph_edgedst;
                 CSRGraph()
                 {
                 }
@@ -1055,7 +1055,7 @@ namespace groute
     		            }
                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_activenode, (nnodes) * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_rowstart, (nnodes + 1) * sizeof(uint32_t)));
-                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_edgedst, (nedges/4) * sizeof(uint32_t)));
+                        //GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_edgedst, (nedges/4) * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.edge_dst_com, nedges/4 * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaHostRegister((void *)m_origin_graph.subgraph_edgedst, nedges/4 * sizeof(index_t), cudaHostRegisterMapped));
 		            }
@@ -1399,7 +1399,7 @@ if(m_on_pinned_memory){
     			         for(index_t i = 0; i < FLAGS_n_stream; i++){
     			             GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_datum.data_ptr_exp[i], edge_max * sizeof(T))); 
     			         }
-                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_datum.data_ptr_com, edge_max * FLAGS_n_stream / 4 * sizeof(T))); 
+                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_datum.data_ptr_com, host_graph.nedges/4 * sizeof(T))); 
                      }
                         m_dev_datum.size = edge_max;
  
@@ -1411,7 +1411,7 @@ if(m_on_pinned_memory){
                                                          cudaMemcpyHostToDevice,stream.cuda_stream));
                 }
 
-                void AllocateDevMirror_edge_compaction(const host::CSRGraph &host_graph, uint64_t seg_nedges,const groute::Stream &stream)
+                void AllocateDevMirror_edge_compaction(const host::CSRGraph &host_graph, uint32_t seg_nedges,const groute::Stream &stream)
                 {
                     GROUTE_CUDA_CHECK(cudaMemcpyAsync(m_dev_datum.data_ptr_com, host_graph.subgraph_edgeweight, seg_nedges * sizeof(T),
                                                          cudaMemcpyHostToDevice,stream.cuda_stream));

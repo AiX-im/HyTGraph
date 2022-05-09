@@ -393,7 +393,8 @@ namespace sepgraph
             KernelSizing(grid_dims, block_dims, seg_enode-seg_snode);
             uint32_t work_size = graph_datum.m_wl_array_in_seg[seg_idx].GetCount(stream);
             //printf("work_size:%d\n",work_size);
-
+            if(zcflag)
+                KernelSizing(grid_dims, block_dims, work_size);
             //KernelSizing(grid_dims, block_dims, work_size);
             switch (engine_options.GetLoadBalancing(common::MsgPassing::PUSH))
             {
@@ -482,6 +483,7 @@ namespace sepgraph
             dim3 grid_dims, block_dims;
             KernelSizing(grid_dims, block_dims, active_count);
             uint32_t work_size = graph_datum.m_wl_array_in_seg[seg_idx].GetCount(stream);
+            //printf("work_size:%d\n",work_size);
             switch (engine_options.GetLoadBalancing(common::MsgPassing::PUSH))
             {
                 case LoadBalancing::NONE:

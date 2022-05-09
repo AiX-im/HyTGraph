@@ -47,6 +47,7 @@ namespace sepgraph {
 	        std::vector<index_t> seg_workload_num;
 	        std::vector<TValue> seg_res_num;
             std::vector<index_t> seg_exc_list;
+            std::vector<index_t> numthread;
 	    
             Bitmap m_wl_bitmap_in; // Work-list in
             Bitmap m_wl_bitmap_out_high; // Work-list out high
@@ -119,6 +120,9 @@ namespace sepgraph {
 
                 uint32_t capacity = nnodes * FLAGS_wl_alloc_factor;
 
+                for(int i = 0; i < 32; i++){
+                    numthread.push_back(i);
+                }
 		        for(index_t i = 0; i < segment - 1; i++){
 		              m_wl_array_in_seg[i] = std::move(groute::Queue<index_t>(nnodes_num[i]));
                       //m_wl_array_in_seg[i] = std::move(groute::Queue<index_t>(nnodes));

@@ -291,7 +291,7 @@ namespace sepgraph
 
             __device__ __forceinline__ bool operator()(uint64_t edge, Payload<TBuffer> meta_data)
             {
-                index_t dst = m_csr_graph.subgraph_edgedst[edge];
+                index_t dst =  m_csr_graph.edge_dest(edge);
                 TBuffer buffer_to_push = meta_data.m_buffer_to_push;
 
                 if (m_weighted)

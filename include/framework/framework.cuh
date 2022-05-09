@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <map>
+#include <math.h>
 #include <thrust/device_ptr.h>
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
@@ -544,7 +545,7 @@ namespace sepgraph {
     		        stream_id = seg_idx_new % FLAGS_n_stream;
                     const auto &csr_graph = m_csr_dev_graph_allocator->DeviceObject();
                     if(algo_variant[seg_idx_new] == AlgoVariant::Exp_Filter){
-                        printf("exp\n");
+                        //printf("exp\n");
                         m_running_info.explicit_num++;
                         seg_exc++;
                         m_graph_datum->seg_exc_list[stream_id] = seg_idx_new; 
@@ -578,6 +579,7 @@ namespace sepgraph {
                     else{
                         //printf("Compaction\n");
                         Compaction();
+                        check();
                         m_csr_dev_graph_allocator->AllocateDevMirror_Edge_Compaction(graph_datum.subgraphedges,stream[stream_id]);
                         m_csr_dev_graph_allocator->SwitchCom();
                         if(m_graph_datum->m_weighted == true){
@@ -776,6 +778,7 @@ namespace sepgraph {
                     if(algo_variant[seg_idx] == AlgoVariant::Zero_Copy){
                         task = 0;
                         zc = true;
+                        //printf("zero\n");
                         while(algo_variant[seg_idx + 1] == AlgoVariant::Zero_Copy && seg_idx < FLAGS_SEGMENT - 1){
                             seg_idx++;
                             m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
@@ -837,11 +840,11 @@ namespace sepgraph {
                     if(FLAGS_priority_a == 1){
                             Stopwatch sw_priority(true);
                             if(algo_variant[seg_idx] == AlgoVariant::Zero_Copy){
-                                graph_datum.seg_res_num[seg_idx] = 0;
+                                graph_datum.seg_res_num[seg_idx] = 1;
                                 continue;
                             }
                             if(algo_variant[seg_idx] == AlgoVariant::Exp_Compaction){
-                                graph_datum.seg_res_num[seg_idx] = -1;
+                                graph_datum.seg_res_num[seg_idx] = 0;
                                 continue;
                             }
                             graph_datum.m_seg_value.set_val_H2DAsync(0, stream[stream_id].cuda_stream);
@@ -867,6 +870,34 @@ namespace sepgraph {
                 m_running_info.time_overhead_wl_unique += sw_unique.ms();
 
           }
+            void com_test(     
+                            uint32_t numActiveNodes,
+                            uint32_t *activeNodes,
+                            uint32_t *activeNodesPointer,
+                            uint64_t *nodePointer, 
+                            uint32_t *activeEdgeList,
+                            uint32_t *edgeList)
+            {
+
+                uint32_t thisNode;
+                uint32_t thisDegree;
+                uint32_t fromHere;
+                uint32_t fromThere;
+                GraphDatum &graph_datum = *m_graph_datum;
+                for(uint32_t i=0; i< graph_datum.subgraphnodes; i++)
+                {
+                    thisNode = activeNodes[i];
+                    thisDegree = activeNodesPointer[i + 1] - activeNodesPointer[i];
+                    fromHere = activeNodesPointer[i];
+                    fromThere = nodePointer[thisNode];
+                    for(uint32_t j=0; j<thisDegree; j++)
+                    {
+                        activeEdgeList[fromHere+j] = edgeList[fromThere+j];
+                    }
+                }
+                
+            }
+
             void dynamic(uint32_t tId,
                             uint32_t numThreads,    
                             uint32_t numActiveNodes,
@@ -877,11 +908,11 @@ namespace sepgraph {
                             uint32_t *edgeList)
             {
 
-                uint32_t chunkSize = ceil(numActiveNodes / numThreads);
+                uint32_t chunkSize = numActiveNodes / numThreads + 1;
                 uint32_t left, right;
+                
                 left = tId * chunkSize;
                 right = min(left+chunkSize, numActiveNodes);    
-                
                 uint32_t thisNode;
                 uint32_t thisDegree;
                 uint32_t fromHere;
@@ -915,6 +946,7 @@ namespace sepgraph {
 
                 uint32_t chunkSize = ceil(numActiveNodes / numThreads);
                 uint32_t left, right;
+
                 left = tId * chunkSize;
                 right = min(left+chunkSize, numActiveNodes);    
                 
@@ -936,6 +968,31 @@ namespace sepgraph {
                     }
                 }
                 
+            }
+            void check(){
+                GraphDatum &graph_datum = *m_graph_datum;
+                auto &csr_graph_host = m_csr_dev_graph_allocator->HostObject();
+                uint32_t thisNode;
+                uint32_t thisDegree;
+                uint32_t fromHere;
+                uint32_t fromThere;
+                uint32_t realDegree;
+                uint32_t falseegde = 0;
+                for(uint32_t i = 0;i < graph_datum.subgraphnodes; i++){
+
+                    thisNode = csr_graph_host.subgraph_activenode[i];
+                    thisDegree = csr_graph_host.subgraph_rowstart[i + 1] - csr_graph_host.subgraph_rowstart[i];
+                    fromHere = csr_graph_host.subgraph_rowstart[i];
+                    fromThere = csr_graph_host.row_start[thisNode];
+                    realDegree = csr_graph_host.row_start[thisNode + 1] - fromThere;
+                    for(uint32_t j = 0; j < thisDegree; j++){
+                        if(csr_graph_host.subgraph_edgedst[fromHere + j] != csr_graph_host.edge_dst[fromThere + j]){
+                            //printf("Compaction edge:%d,real edge:%d\n",csr_graph_host.subgraph_edgedst[fromHere + j],csr_graph_host.edge_dst[fromThere + j]);
+                            falseegde++;
+                        }
+                    }
+                }
+                //printf("falseegde:%d total_edge:%d\n",falseegde,graph_datum.subgraphedges);
             }
           void Compaction() {
                 int dev_id = 0;
@@ -984,17 +1041,19 @@ namespace sepgraph {
                 std::thread runThreads[numThreads];
                 if(m_graph_datum->m_weighted == false){
                     for(uint32_t t=0; t<numThreads; t++)
-                    {
-
-                        runThreads[t] = std::thread([&](){dynamic(
-                                                t,
+                    {   
+                        uint32_t tid = t;
+                        auto f = [&](uint32_t tid){dynamic(
+                                                tid,
                                                 numThreads,
                                                 graph_datum.subgraphnodes,
                                                 csr_graph_host.subgraph_activenode,
                                                 csr_graph_host.subgraph_rowstart,
                                                 csr_graph_host.row_start, 
                                                 csr_graph_host.subgraph_edgedst,
-                                                csr_graph_host.edge_dst);});
+                                                csr_graph_host.edge_dst);};
+                        
+                        runThreads[tid] = std::thread(f,tid);
 
                     }
                         
@@ -1005,9 +1064,9 @@ namespace sepgraph {
                else{
                     for(uint32_t t=0; t<numThreads; t++)
                     {
-
-                        runThreads[t] = std::thread([&](){dynamic_weight(
-                                                t,
+                        uint32_t tid = t;
+                        auto f = [&](uint32_t tid){dynamic_weight(
+                                                tid,
                                                 numThreads,
                                                 graph_datum.subgraphnodes,
                                                 csr_graph_host.subgraph_activenode, 
@@ -1016,12 +1075,20 @@ namespace sepgraph {
                                                 csr_graph_host.subgraph_edgedst,
                                                 csr_graph_host.edge_dst,
                                                 csr_graph_host.subgraph_edgeweight,
-                                                csr_graph_host.edge_weights);});
+                                                csr_graph_host.edge_weights);};
+                        
+                        runThreads[tid] = std::thread(f,tid);
                     }
                         
                     for(unsigned int t=0; t<numThreads; t++)
                         runThreads[t].join();
                }
+               // com_test(graph_datum.subgraphnodes,
+               //                                   csr_graph_host.subgraph_activenode,
+               //                                   csr_graph_host.subgraph_rowstart,
+               //                                   csr_graph_host.row_start, 
+               //                                   csr_graph_host.subgraph_edgedst,
+               //                                   csr_graph_host.edge_dst);
           }
 
       };
