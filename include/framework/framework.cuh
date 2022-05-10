@@ -141,7 +141,8 @@ namespace sepgraph {
 	  uint64_t edge_num = 0;		    
 	  index_t node_id = 0;
 	  uint64_t out_degree;
-      uint32_t maxnode_num = 0;
+	  std::vector<index_t> nnodes_num;
+      uint32_t maxnode_num;
 	  seg_snode = node_id;
 	  m_groute_context->seg_snode[0] = seg_snode;
 	  for(index_t seg_idx = 0; node_id < csr_graph.nnodes ; seg_idx++){
@@ -166,9 +167,7 @@ namespace sepgraph {
 
             seg_nnodes = seg_enode - seg_snode; 
             m_running_info.nnodes_seg[seg_idx] = seg_nnodes;
-            if(seg_nnodes > maxnode_num){
-                maxnode_num = seg_nnodes;
-            }
+            nnodes_num.push_back(seg_nnodes);
 
             m_groute_context->seg_enode[seg_idx] = seg_enode;
             seg_sedge_csr = csr_graph.row_start[seg_snode];                            // start edge		    
@@ -190,7 +189,7 @@ namespace sepgraph {
                 m_csr_dev_graph_allocator = std::unique_ptr<groute::graphs::single::CSRGraphAllocator>(
                     new groute::graphs::single::CSRGraphAllocator(csr_graph,seg_nedges_csr_max));
 
-                m_graph_datum = std::unique_ptr<GraphDatum>(new GraphDatum(csr_graph,seg_nedges_csr_max,maxnode_num));
+                m_graph_datum = std::unique_ptr<GraphDatum>(new GraphDatum(csr_graph,seg_nedges_csr_max,nnodes_num));
 
                 sw_load.stop();
 
@@ -539,6 +538,7 @@ namespace sepgraph {
 		            else{
                         seg_idx_new = seg_idx;
                     }
+                    seg_idx_new = m_groute_context->segment_id_ct[seg_idx_new];
     		        seg_snode = m_groute_context->seg_snode_ct[seg_idx_new];                                    // start node
     		        seg_enode = m_groute_context->seg_enode_ct[seg_idx_new];                                    // end node
     		        seg_sedge_csr = m_groute_context->seg_sedge_csr_ct[seg_idx_new];                            // start edge
@@ -548,7 +548,7 @@ namespace sepgraph {
     		        stream_id = seg_idx_new % FLAGS_n_stream;
                     const auto &csr_graph = m_csr_dev_graph_allocator->DeviceObject();
                     if(algo_variant[seg_idx_new] == AlgoVariant::Exp_Filter){
-                        //printf("exp\n");
+                        printf("exp\n");
                         m_running_info.explicit_num++;
                         seg_exc++;
                         m_graph_datum->seg_exc_list[stream_id] = seg_idx_new; 
@@ -571,7 +571,7 @@ namespace sepgraph {
                         m_csr_dev_graph_allocator->SwitchZC();
                         m_graph_datum->m_csr_edge_weight_datum.SwitchZC();
                         zcflag = true;
-                        seg_idx_new = FLAGS_SEGMENT - 1;
+                        seg_idx_new = FLAGS_SEGMENT;
                         RunSyncPushDDB(app_inst,seg_snode,seg_enode,seg_sedge_csr,seg_idx_new,zcflag,
                            csr_graph,
                            graph_datum,
@@ -589,7 +589,7 @@ namespace sepgraph {
                             m_graph_datum->m_csr_edge_weight_datum.SwitchCom();
                         }
                         zcflag = false;
-                        seg_idx_new = FLAGS_SEGMENT;
+                        seg_idx_new = FLAGS_SEGMENT + 1;
                         RunSyncPushDDB_COM(app_inst,
                            graph_datum.subgraphnodes,
                            seg_idx_new,
@@ -759,8 +759,8 @@ namespace sepgraph {
                 const groute::Stream &stream_seg = m_groute_context->CreateStream(dev_id);
                 GraphDatum &graph_datum = *m_graph_datum;
                 AppImplDeviceObject &app_inst = *m_app_inst;
-                graph_datum.m_wl_array_in_seg[FLAGS_SEGMENT - 1].ResetAsync(stream_seg.cuda_stream);
                 graph_datum.m_wl_array_in_seg[FLAGS_SEGMENT].ResetAsync(stream_seg.cuda_stream);
+                graph_datum.m_wl_array_in_seg[FLAGS_SEGMENT + 1].ResetAsync(stream_seg.cuda_stream);
                 stream_seg.Sync();
                 Stopwatch sw_unique(true);
                 index_t seg_snode,seg_enode;
@@ -771,11 +771,11 @@ namespace sepgraph {
                 Stopwatch sw_rebuild(true);
                 index_t seg_idx_ct = 0;
                 for(index_t seg_idx = 0; seg_idx < FLAGS_SEGMENT; seg_idx++){  
-                    m_groute_context->seg_sedge_csr_ct[seg_idx_ct] = m_groute_context->seg_sedge_csr[seg_idx];
-                    m_groute_context->seg_nedge_csr_ct[seg_idx_ct] = m_groute_context->seg_nedge_csr[seg_idx];
+                    //m_groute_context->seg_sedge_csr_ct[seg_idx_ct] = m_groute_context->seg_sedge_csr[seg_idx];
+                    //m_groute_context->seg_nedge_csr_ct[seg_idx_ct] = m_groute_context->seg_nedge_csr[seg_idx];
                     stream_id = seg_idx % FLAGS_n_stream;
                     seg_snode = m_groute_context->seg_snode[seg_idx];
-                    m_groute_context->seg_snode_ct[seg_idx_ct] = seg_snode;
+                    //m_groute_context->seg_snode_ct[seg_idx_ct] = seg_snode;
 
                     if(algo_variant[seg_idx] == AlgoVariant::Zero_Copy){
                         task = 0;
@@ -783,7 +783,7 @@ namespace sepgraph {
                         //printf("zero\n");
                         while(algo_variant[seg_idx + 1] == AlgoVariant::Zero_Copy && seg_idx < FLAGS_SEGMENT - 1){
                             seg_idx++;
-                            m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
+                            //m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
                         }
                     }
                     if(algo_variant[seg_idx] == AlgoVariant::Exp_Compaction){
@@ -792,38 +792,41 @@ namespace sepgraph {
                         //printf("Compaction\n");
                         while(algo_variant[seg_idx + 1] == AlgoVariant::Exp_Compaction && seg_idx < FLAGS_SEGMENT - 1){
                             seg_idx++;
-                            m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
+                            //m_groute_context->seg_nedge_csr_ct[seg_idx_ct] += m_groute_context->seg_nedge_csr[seg_idx];
                         }
                     }
 
                     seg_enode = m_groute_context->seg_enode[seg_idx];
-                    m_groute_context->seg_enode_ct[seg_idx_ct] = seg_enode; 
+                    //m_groute_context->seg_enode_ct[seg_idx_ct] = seg_enode; 
                     //printf("seg_idx:%d seg_snode:%d seg_enode:%d seg_sedge_csr:%lu seg_nedges_csr:%lu \n",seg_idx,seg_snode,seg_enode,m_groute_context->seg_sedge_csr_ct[seg_idx_ct],m_groute_context->seg_nedge_csr_ct[seg_idx_ct]); 
                     if(task == 0){
                         task = 1;
                         RebuildArrayWorklist_zero(app_inst,
                             graph_datum,
-                            stream[stream_id],seg_snode,seg_enode - seg_snode,FLAGS_SEGMENT - 1);
+                            stream[stream_id],seg_snode,seg_enode - seg_snode,FLAGS_SEGMENT);
                     }
                     else if(task == 1)
                     {
                         algo_variant[seg_idx_ct] = AlgoVariant::Exp_Filter;
+                        m_groute_context->segment_id_ct[seg_idx_ct++] = seg_idx;
                         RebuildArrayWorklist(app_inst,
                             graph_datum,
-                            stream[stream_id],seg_snode,seg_enode - seg_snode,seg_idx_ct++);
+                            stream[stream_id],seg_snode,seg_enode - seg_snode,seg_idx);
 
                     }
                     else if(task == 2){
                         task = 1;
                         RebuildArrayWorklist_compaction(app_inst,
                             graph_datum,
-                            stream[stream_id],seg_snode,seg_enode - seg_snode,FLAGS_SEGMENT);
+                            stream[stream_id],seg_snode,seg_enode - seg_snode,FLAGS_SEGMENT + 1);
                     }
                 }
                 if(zc){
+                    m_groute_context->segment_id_ct[seg_idx_ct] = seg_idx_ct;
                     algo_variant[seg_idx_ct++] = AlgoVariant::Zero_Copy;
                 }
                 if(compaction){
+                    m_groute_context->segment_id_ct[seg_idx_ct] = seg_idx_ct;
                     algo_variant[seg_idx_ct++] = AlgoVariant::Exp_Compaction;
                 }
 

@@ -112,6 +112,7 @@ namespace utils
 	        index_t seg_enode[512];
             index_t seg_snode_ct[512];
             index_t seg_enode_ct[512];
+            index_t segment_id_ct[512];
 
             Context(int ngpus=1) :
                     groute::Context(), ngpus(ngpus)
