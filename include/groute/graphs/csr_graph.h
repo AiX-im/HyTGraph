@@ -1052,8 +1052,8 @@ namespace groute
     		            for(index_t i = 0; i < FLAGS_n_stream; i++){
     			             GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.edge_dst_exp[i], seg_nedges * sizeof(index_t))); 
     		            }
-                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_activenode, (nnodes / 4) * sizeof(uint32_t)));
-                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_rowstart, (nnodes / 4 + 1) * sizeof(uint32_t)));
+                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_activenode, (nnodes) * sizeof(uint32_t)));
+                        GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.subgraph_rowstart, (nnodes + 1) * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaMalloc(&m_dev_mirror.edge_dst_com, nedges/4 * sizeof(uint32_t)));
                         GROUTE_CUDA_CHECK(cudaHostRegister((void *)m_origin_graph.subgraph_edgedst, nedges/4 * sizeof(index_t), cudaHostRegisterMapped));
 		            }
