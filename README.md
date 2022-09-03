@@ -1,4 +1,4 @@
-# SEP-Graph++: GPU-Accelerated Graph Processing with Hybrid Transfer Management #
+# HyTGraph: GPU-Accelerated Graph Processing with Hybrid Transfer Management #
 
 ## 1. Introduction ##
 This repo contains all the source code to build SEP-Graph++.
@@ -21,11 +21,17 @@ This repo contains all the source code to build SEP-Graph++.
 ### 2.3 Setup ###
 1. Download
 
-    git clone --recursive https://github.com/AiX-im/SEP-GraphPP.git
+    git clone --recursive https://github.com/AiX-im/HyTGraph.git
     
 2. Build
 
-  - cd SEP-GraphPP
+  - cd HyTGraph
   - mkdir build && cd build
   - cmake .. 
   - make -j 8
+
+## 3. Contact ##
+
+For the technical questions, please contact: aixin0@stumail.neu.edu.cn
+
+For the questions about the paper, please contact: wangqiange@stumail.neu.edu.cn
